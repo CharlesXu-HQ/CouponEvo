@@ -12,6 +12,18 @@ from pathlib import Path
 from .provider import ApiProvider, request_json
 
 
+def _require_econml_revision(before: str, revised: str) -> None:
+    if "TLearner(" not in before:
+        return
+    tree = ast.parse(revised)
+    imports = any(isinstance(node, ast.ImportFrom) and node.module == "econml.metalearners" and
+                  any(alias.name == "TLearner" for alias in node.names) for node in tree.body)
+    calls = any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and
+                node.func.id == "TLearner" for node in ast.walk(tree))
+    if not (imports and calls):
+        raise ValueError("Agent removed the EconML TLearner")
+
+
 def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_path: Path | None = None,
                      codex_bin: str = "codex", model: str | None = None) -> str:
     candidate_path, report_path = Path(candidate_path), Path(report_path)
@@ -23,8 +35,10 @@ def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_pa
         prompt = (
             "Improve candidate.py based on report.md for the next offline uplift experiment. "
             "Edit candidate.py and keep the fit_predict signature, device argument, CUDA computation, "
-            "model_device result attribute, and return columns. Use only pandas, numpy and torch. "
-            "All model fitting and prediction must use PyTorch on the requested device, including CPU. "
+            "model_device result attribute, and return columns. Keep EconML TLearner as the causal framework "
+            "and tune its PyTorch outcome models or pre-treatment features. Use only pandas, numpy, "
+            "torch, econml and sklearn. All outcome-model fitting and prediction must use PyTorch "
+            "on the requested device, including CPU. "
             "If the evidence suggests missing pre-treatment user features, "
             "write feature_gaps.md with proposed field, source, timing, evidence, leakage risk, and "
             "a future dataset validation plan. Do not change report.md or other files."
@@ -40,6 +54,7 @@ def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_pa
             raise RuntimeError(f"Agent CLI failed: {detail[-3000:]}")
         revised = (scratch / "candidate.py").read_bytes()
         compile(revised, str(candidate_path), "exec")
+        _require_econml_revision(before.decode(), revised.decode())
         if revised == before:
             raise ValueError("Agent did not change candidate.py")
         candidate_path.write_bytes(revised)
@@ -62,8 +77,10 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
         "feature_gaps_md (empty string if none). Make one small, testable change to "
         "the uplift algorithm or pre-treatment feature engineering based on the report. "
         "Preserve fit_predict, its device argument, CUDA computation, model_device result attribute, "
-        "and required return columns. Use only pandas, numpy and torch. "
-        "All model fitting and prediction must use PyTorch on the requested device, including CPU. "
+        "and required return columns. Keep EconML TLearner as the causal framework; tune its "
+        "PyTorch outcome models or pre-treatment features. Use only pandas, numpy, torch, "
+        "econml and sklearn. All outcome-model fitting and prediction must use PyTorch on "
+        "the requested device, including CPU. "
         "Create engineered features before building the feature matrix so predictions "
         "actually change. The target contains only pre-treatment features; never use "
         "target treatment or outcomes. Suggest a missing field only with a concrete "
@@ -81,7 +98,7 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
                 revised = revised.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             revised += "\n"
             tree = ast.parse(revised, filename=str(candidate_path))
-            allowed = {"__future__", "numpy", "pandas", "torch"}
+            allowed = {"__future__", "numpy", "pandas", "torch", "econml", "sklearn"}
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import) and any(alias.name.split(".")[0] not in allowed for alias in node.names):
                     raise ValueError("Agent candidate imports an unsupported module")
@@ -89,6 +106,7 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
                     raise ValueError("Agent candidate imports an unsupported module")
             if not any(isinstance(node, ast.FunctionDef) and node.name == "fit_predict" for node in tree.body):
                 raise ValueError("Agent candidate is missing fit_predict")
+            _require_econml_revision(before, revised)
             compile(tree, str(candidate_path), "exec")
             if revised == before:
                 raise ValueError("Agent did not change candidate.py")

@@ -1,10 +1,12 @@
-"""Editable baseline: separate ridge outcome models for treatment and control."""
+"""Editable EconML T-learner with PyTorch ridge outcome models."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import torch
+from econml.metalearners import TLearner
+from sklearn.base import BaseEstimator, RegressorMixin
 
 
 def _matrix(train: pd.DataFrame, target: pd.DataFrame, features: list[str]) -> tuple[np.ndarray, np.ndarray]:
@@ -20,16 +22,26 @@ def _matrix(train: pd.DataFrame, target: pd.DataFrame, features: list[str]) -> t
     return np.column_stack([np.ones(len(train)), train_values]), np.column_stack([np.ones(len(target)), target_values])
 
 
-def _ridge_predict(x: np.ndarray, y: np.ndarray, target: np.ndarray, device: str) -> np.ndarray:
-    if device == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA model training requires an available GPU")
-    x_tensor = torch.as_tensor(x, dtype=torch.float64, device=device)
-    y_tensor = torch.as_tensor(y, dtype=torch.float64, device=device)
-    target_tensor = torch.as_tensor(target, dtype=torch.float64, device=device)
-    penalty = torch.eye(x.shape[1], dtype=torch.float64, device=device) * 1e-3
-    penalty[0, 0] = 0
-    weights = torch.linalg.solve(x_tensor.T @ x_tensor + penalty, x_tensor.T @ y_tensor)
-    return (target_tensor @ weights).cpu().numpy()
+class TorchRidgeRegressor(RegressorMixin, BaseEstimator):
+    """Scikit-learn compatible outcome model; all linear algebra runs in PyTorch."""
+
+    def __init__(self, device: str = "cpu", alpha: float = 1e-3):
+        self.device = device
+        self.alpha = alpha
+
+    def fit(self, x: np.ndarray, y: np.ndarray):
+        if self.device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA model training requires an available GPU")
+        x_tensor = torch.as_tensor(np.asarray(x), dtype=torch.float64, device=self.device)
+        y_tensor = torch.as_tensor(np.asarray(y), dtype=torch.float64, device=self.device)
+        penalty = torch.eye(x_tensor.shape[1], dtype=torch.float64, device=self.device) * self.alpha
+        penalty[0, 0] = 0
+        self.weights_ = torch.linalg.solve(x_tensor.T @ x_tensor + penalty, x_tensor.T @ y_tensor)
+        return self
+
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        x_tensor = torch.as_tensor(np.asarray(x), dtype=torch.float64, device=self.device)
+        return (x_tensor @ self.weights_).cpu().numpy()
 
 
 def fit_predict(train: pd.DataFrame, target: pd.DataFrame, *, features: list[str], treatment: str,
@@ -44,13 +56,13 @@ def fit_predict(train: pd.DataFrame, target: pd.DataFrame, *, features: list[str
     result = pd.DataFrame(index=target.index)
     for name, column in outcomes.items():
         y = train[column].to_numpy(dtype=float)
-        treated = _ridge_predict(x_train[arm == 1], y[arm == 1], x_target, device)
-        control = _ridge_predict(x_train[arm == 0], y[arm == 0], x_target, device)
-        if name not in {"revenue", "gross_margin"}:
-            treated, control = np.clip(treated, 0, 1), np.clip(control, 0, 1)
-        result[f"{name}_uplift"] = treated - control
+        learner = TLearner(models=TorchRidgeRegressor(device=device))
+        learner.fit(y, arm, X=x_train)
+        result[f"{name}_uplift"] = learner.effect(x_target)
     if cost:
         y = train[cost].to_numpy(dtype=float)
-        result["expected_cost"] = np.maximum(0, _ridge_predict(x_train[arm == 1], y[arm == 1], x_target, device))
+        cost_model = TorchRidgeRegressor(device=device).fit(x_train[arm == 1], y[arm == 1])
+        result["expected_cost"] = np.maximum(0, cost_model.predict(x_target))
     result.attrs["model_device"] = device
+    result.attrs["causal_framework"] = "econml.TLearner"
     return result

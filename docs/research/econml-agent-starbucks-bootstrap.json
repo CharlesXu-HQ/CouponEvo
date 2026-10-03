@@ -1,0 +1,19 @@
+{
+  "dataset": "Starbucks",
+  "holdout": "test",
+  "n": 16907,
+  "seed": 20261003,
+  "bootstrap_replicates": 2000,
+  "paired_normal": {
+    "mean": -0.0009463535813568345,
+    "lower": -0.0025188635384940893,
+    "upper": 0.0006261563757804203,
+    "se": 0.0008023009985394157
+  },
+  "paired_bootstrap_percentile": [
+    -0.0027207665464008992,
+    0.0005914709883480216
+  ],
+  "new_selected": 3381,
+  "old_selected": 3381
+}

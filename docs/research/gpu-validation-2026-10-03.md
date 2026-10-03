@@ -22,3 +22,14 @@
 - 公开说明给出干预后购买标签，却未提供足以核实随机分组机制与处理概率的信息。本轮只验证模型可运行，不计算 IPW 因果效果或成本收益。
 
 数据授权与其他候选见[公开数据调研](open-uplift-datasets.md)。
+
+## EconML T-learner、Agent 调优与配对区间
+
+- 在目标机 GPU 环境安装 `econml==0.17.0`。默认模型使用 EconML `TLearner` 组织处理/对照两臂，底层 `TorchRidgeRegressor` 在 CUDA 上拟合与预测。DeepSeek `deepseek-flash` Agent 将其改为 PyTorch MLP 结果模型，仍调用 EconML `TLearner`。生成代码已保存为 [Agent 候选](../../examples/agent-mlp-candidate.py)；目标机快照在 `runs/econml-agent/01d1aa77a38fec5c/candidate.py`。
+- Agent 首次运行暴露 MLP 初始化和批次顺序的随机性；执行器现按 `--seed` 固定 PyTorch RNG。相同 GPU test 命令重复执行后，`report.json` SHA-256 两次均为 `7f7abff47f60fc33ee8dcf7a2241d300aee0d008c63cf92647e2f3258e34d1ea`。
+- 固定种子后，Starbucks 验证集 16,907 人：Agent MLP 与 EconML 岭回归基线的转化策略配对 IPW 差值为 `+0.000237/人`，95% 正态近似区间 `[-0.001435, +0.001909]`；文件为 `runs/econml-seeded-validation/f8ea8926029bd4fe/report.json`。
+- 冻结两份代码后在独立 test 集 16,907 人比较一次：差值为 `-0.000946/人`，95% 配对区间 `[-0.002519, +0.000626]`；[最终报告 JSON](econml-agent-starbucks-final.json) 同步自目标机 `runs/econml-seeded-final/98cf3c8ac059e3ff/report.json`。两个区间均跨零，**没有 Agent 提升的证据**。结果衡量的是购买转化，不是 App 促活或真实净利润；$0.15 是课程假设成本。
+- 对 test 集同一逐用户配对差值做 2,000 次有放回 bootstrap，百分位 95% 区间为 `[-0.002721, +0.000591]`，与正态近似结论一致；固定随机种子 `20261003`，详见 [bootstrap 校验 JSON](econml-agent-starbucks-bootstrap.json)。两种区间均跨零，不支持“新模型更好”。
+- 目标机测试 `python -m unittest discover -s tests -q`：46 个测试通过，包括 EconML CPU/CUDA 路径、同策略零差值、逐用户配对计算、随机候选的可重复运行、仅有收入和实际成本时的净收入策略，以及 Agent 不得移除 EconML learner。
+- X5 200,039 行上，以 `age`、`gender` 两个特征训练 160,031 行、预测 40,008 行；EconML + CUDA 输出全为有限数，GPU 峰值 13,007,360 字节，记录 `runs/x5-econml-smoke.json`。Criteo v2.1 公开 5,000 行样本上，以 12 个匿名特征训练 4,000 行、预测 1,000 行；CUDA 输出全为有限数，记录 `runs/criteo-econml-smoke.json`。这两次只做运行检查，不给因果效果或真实成本结论。
+- 尝试从 [Criteo 官方 v2.1 下载地址](https://ailab.criteo.com/criteo-uplift-prediction-dataset/) 向目标机取完整 296 MiB 文件；当时传输速度约 17 KiB/s，预估需约五小时，故停止并将 1.5 MiB 不完整文件标为 `data/criteo-uplift-v2.1.csv.gz.partial`。完整文件未参加本轮测试。

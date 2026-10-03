@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from coupon_lab.candidate import fit_predict
-from coupon_lab.evaluate import Budget, estimate_cost, evaluate_policy, select_policy
+from coupon_lab.evaluate import Budget, compare_policies, estimate_cost, evaluate_policy, select_policy
 
 
 class EvaluationTests(unittest.TestCase):
@@ -40,6 +40,16 @@ class EvaluationTests(unittest.TestCase):
         result = evaluate_policy(frame, np.array([False, False]), "active", 0.5)
         self.assertEqual((result.mean, result.lower, result.upper), (0, 0, 0))
 
+    def test_paired_difference_uses_per_unit_policy_contrast(self):
+        frame = pd.DataFrame({"__treatment": [0, 1, 0, 1], "active": [0, 1, 1, 1]})
+        old = np.array([True, False, True, False])
+        new = np.array([False, True, True, False])
+        estimate = compare_policies(frame, new, old, "active", 0.5)
+        self.assertAlmostEqual(estimate.mean, 0.5)
+        self.assertAlmostEqual(estimate.se, np.std([0, 2, 0, 0], ddof=1) / 2)
+        same = compare_policies(frame, new, new, "active", 0.5)
+        self.assertEqual((same.mean, same.lower, same.upper, same.se), (0, 0, 0, 0))
+
     def test_candidate_handles_optional_cost_and_categories(self):
         rows = []
         for i in range(40):
@@ -53,6 +63,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(list(result), ["active_uplift", "expected_cost"])
         self.assertTrue((result.active_uplift > 0).all())
         self.assertTrue((result.expected_cost >= 0).all())
+        self.assertEqual(result.attrs["causal_framework"], "econml.TLearner")
         no_cost = fit_predict(train, target, features=["x", "segment"],
                               treatment="__treatment", outcomes={"active": "active"}, cost=None)
         self.assertNotIn("expected_cost", no_cost)

@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
+import torch
 
 from coupon_lab.agent import revise_candidate, revise_candidate_deepseek
 from coupon_lab.cli import main, run_experiment
@@ -62,6 +63,29 @@ class RunTests(unittest.TestCase):
         self.assertIn("发券前 7 天登录天数", (artifact / "report.md").read_text())
         self.assertEqual((artifact / "feature_gaps.md").read_text(), gap.read_text())
 
+    def test_same_candidate_has_zero_paired_difference_on_final_holdout(self):
+        candidate = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        report = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs", final=True,
+                                compare_candidate_path=candidate)
+        self.assertEqual(report["holdout"], "test")
+        for metrics in report["paired_vs_baseline"].values():
+            for estimate in metrics.values():
+                self.assertEqual((estimate["mean"], estimate["lower"], estimate["upper"]), (0, 0, 0))
+        self.assertTrue((self.root / "runs" / report["run_id"] / "baseline_candidate.py").exists())
+
+    def test_stochastic_candidate_is_repeatable_for_one_run_id(self):
+        def candidate(train, target, **kwargs):
+            values = torch.rand(len(target)).numpy()
+            return pd.DataFrame({"active_uplift": values,
+                                 "gross_margin_uplift": values,
+                                 "expected_cost": values})
+
+        with patch("coupon_lab.cli._candidate_function", return_value=candidate):
+            first = run_experiment(self.path, Budget("count", 0.2), seed=11, output=self.root / "runs")
+            second = run_experiment(self.path, Budget("count", 0.2), seed=11, output=self.root / "runs")
+        self.assertEqual(first["prediction_sha256"], second["prediction_sha256"])
+
     def test_candidate_receives_only_holdout_features(self):
         observed = {}
 
@@ -94,6 +118,16 @@ class RunTests(unittest.TestCase):
         self.assertEqual(set(report["policies"]), {"conversion", "random"})
         self.assertIn("net_margin", report["unavailable_objectives"])
         self.assertNotIn("cost", report["policies"]["conversion"])
+
+    def test_revenue_only_with_observed_cost_has_net_policy_and_paired_net(self):
+        self.manifest["outcomes"] = {"revenue": "margin", "coupon_cost": "cost"}
+        self.manifest.pop("margin_includes_coupon_cost")
+        self.save_manifest()
+        candidate = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        report = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs", compare_candidate_path=candidate)
+        self.assertIn("net_revenue", report["policies"])
+        self.assertIn("net", report["paired_vs_baseline"]["net_revenue"])
 
     def test_fixed_send_cost_reports_assumed_net_only(self):
         self.manifest["outcomes"].pop("coupon_cost")
@@ -214,6 +248,31 @@ class RunTests(unittest.TestCase):
         self.assertEqual(call.call_count, 2)
         self.assertIn("return 1", candidate.read_text())
 
+    def test_agent_cannot_remove_econml_learner(self):
+        candidate = self.root / "candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate.write_bytes(source.read_bytes())
+        report = self.root / "report.md"
+        report.write_text("Report")
+        revised = candidate.read_text().replace("learner = TLearner(models=TorchRidgeRegressor(device=device))",
+                                                "learner = TorchRidgeRegressor(device=device)")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": json.dumps({"candidate_py": revised})}}]}).encode()
+
+        with patch("urllib.request.urlopen", side_effect=[FakeResponse(), FakeResponse()]):
+            with self.assertRaisesRegex(ValueError, "EconML"):
+                revise_candidate_deepseek(candidate, report, api_key="test-key")
+        self.assertEqual(candidate.read_bytes(), source.read_bytes())
+
     def test_agent_command_rejects_code_only_change_and_restores_candidate(self):
         candidate = self.root / "candidate.py"
         source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
@@ -240,8 +299,8 @@ class RunTests(unittest.TestCase):
 
         def fake_revision(path, *_args, **_kwargs):
             path.write_text(path.read_text().replace(
-                'result[f"{name}_uplift"] = treated - control',
-                'result[f"{name}_uplift"] = treated - control + 0.1'))
+                'result[f"{name}_uplift"] = learner.effect(x_target)',
+                'result[f"{name}_uplift"] = learner.effect(x_target) + 0.1'))
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
@@ -269,8 +328,8 @@ class RunTests(unittest.TestCase):
 
         def fake_revision(path, *_args, **_kwargs):
             path.write_text(path.read_text().replace(
-                'result[f"{name}_uplift"] = treated - control',
-                'result[f"{name}_uplift"] = treated - control + 0.1'))
+                'result[f"{name}_uplift"] = learner.effect(x_target)',
+                'result[f"{name}_uplift"] = learner.effect(x_target) + 0.1'))
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
@@ -300,8 +359,8 @@ class RunTests(unittest.TestCase):
 
         def fake_revision(path, *_args, **_kwargs):
             path.write_text(path.read_text().replace(
-                'result[f"{name}_uplift"] = treated - control',
-                'result[f"{name}_uplift"] = treated - control + 0.1'))
+                'result[f"{name}_uplift"] = learner.effect(x_target)',
+                'result[f"{name}_uplift"] = learner.effect(x_target) + 0.1'))
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",

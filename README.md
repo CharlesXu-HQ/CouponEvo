@@ -4,14 +4,14 @@
 
 ## 运行
 
-需要 Python 3.12+、pandas、NumPy 和 PyTorch；GPU 实验需要支持 CUDA 的 PyTorch。先按[公开数据说明](examples/README.md)将 Starbucks 促销实验 CSV 下载到 `data/starbucks-training.csv`，再在项目根目录执行：
+需要 Python 3.12+、pandas、NumPy、PyTorch 和 EconML；GPU 实验需要支持 CUDA 的 PyTorch。先按[公开数据说明](examples/README.md)将 Starbucks 促销实验 CSV 下载到 `data/starbucks-training.csv`，再在项目根目录执行：
 
 ```bash
 python -m pip install -e .
 python -m coupon_lab.cli run examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42
 ```
 
-运行产物在 `runs/<run_id>/report.json`、`report.md` 和 `candidate.py`。相同数据、manifest、候选代码、预算和种子产生相同 `run_id` 与指标。默认只评估验证集；选定方案后可加 `--final` 使用测试集。
+运行产物在 `runs/<run_id>/report.json`、`report.md` 和 `candidate.py`。在相同框架代码及依赖环境下，相同数据、manifest、候选代码、预算和种子产生相同 `run_id` 与指标；随机模型的 PyTorch 种子由执行器固定。默认只评估验证集；选定方案后可加 `--final` 使用测试集。
 
 若本机已安装并登录 Codex CLI，可运行一次自动代码修改与复评：
 
@@ -41,7 +41,7 @@ python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budg
 
 也可直接传 `--agent-provider-url URL --agent-model MODEL`，并在 `AGENT_API_KEY` 中提供密钥；完整 `/chat/completions` URL 和 API base URL 均可。使用 `api.deepseek.com` 时默认显式发送 `thinking: enabled`；配置中的 `thinking: "enabled"` 可用于代理 DeepSeek 的其他 URL。其他兼容端点可设为 `"omit"`，仍会发送 `reasoning_effort`。端点需支持 Chat Completions、JSON 输出及所选推理档位；若请求被拒绝，程序会报错，不会主动降级到关闭思考模式。API key 不放入配置文件或命令行。
 
-这个命令先生成报告，再让 Agent 读取候选代码和报告、修改 `candidate.py`，检查语法后重新实验。Codex 使用临时工作目录；DeepSeek API 只接收候选代码和报告。若发现缺少关键的干预前用户特征，Agent 可另写 `feature_gaps.md`，记录建议字段、来源、时点、证据、泄漏风险和下一版验证方法；该文件会进入新一轮报告，当前固定 dataset 不变。自动修改可能产生性能更差的候选；各轮报告和代码快照可供比较。
+这个命令先生成报告，再让 Agent 读取候选代码和报告、修改 `candidate.py`，检查语法后重新实验。候选算法使用 EconML `TLearner`，底层结果模型以 PyTorch 在指定设备训练；Agent 可以调模型参数或使用干预前特征。Codex 使用临时工作目录；DeepSeek API 只接收候选代码和报告。若发现缺少关键的干预前用户特征，Agent 可另写 `feature_gaps.md`，记录建议字段、来源、时点、证据、泄漏风险和下一版验证方法；该文件会进入新一轮报告，当前固定 dataset 不变。自动修改可能产生性能更差的候选；各轮报告和代码快照可供比较。
 
 ## Dataset manifest
 
@@ -57,4 +57,11 @@ python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budg
 python -m unittest discover -s tests -v
 ```
 
-离线评估使用冻结随机试验的处理概率和独立验证集，输出逆概率加权的策略增量及 95% 正态近似区间。当前只有一种干预相对不干预、一次决策、CSV 输入、数值和类别特征的 PyTorch 岭回归 T-learner。CPU 和 CUDA 路径都用 PyTorch 训练和预测；`--device cuda` 要求候选算法在 GPU 上执行并确认设备。特征读取与预处理仍由 CPU 完成。该原型不执行线上发券，不自动采集数据，也不将公开数据缺少的收入或券成本补造成真实标签。公开数据的授权和字段差异见[调研记录](docs/research/open-uplift-datasets.md)；三份公开数据在目标机的测试结果见[GPU 验证记录](docs/research/gpu-validation-2026-10-03.md)。
+离线评估使用冻结随机试验的处理概率和独立验证集，输出逆概率加权的策略增量及 95% 正态近似区间。Agent 每轮还会在同一验证集上计算新旧策略逐用户差值的配对区间。选定候选后，用冻结的两份代码在未参与调参的测试集上做最终配对比较：
+
+```bash
+python -m coupon_lab.cli run examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42 \
+  --candidate runs/new-candidate.py --compare-candidate runs/baseline-candidate.py --final
+```
+
+验证集配对区间不能作为多轮筛选后的最终提升证据；测试集也应只在候选与指标确定后使用一次。当前只有一种干预相对不干预、一次决策、CSV 输入、数值和类别特征的 EconML T-learner，默认 PyTorch 岭回归结果模型。CPU 和 CUDA 路径都用 PyTorch 训练和预测；`--device cuda` 要求候选算法在 GPU 上执行并确认设备。特征读取与预处理仍由 CPU 完成。该原型不执行线上发券，不自动采集数据，也不将公开数据缺少的收入或券成本补造成真实标签。公开数据的授权和字段差异见[调研记录](docs/research/open-uplift-datasets.md)；三份公开数据在目标机的测试结果见[GPU 验证记录](docs/research/gpu-validation-2026-10-03.md)。

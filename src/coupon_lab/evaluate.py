@@ -77,6 +77,21 @@ def evaluate_policy(frame: pd.DataFrame, policy: np.ndarray, outcome: str, prope
     return _estimate(influence)
 
 
+def compare_policies(frame: pd.DataFrame, new: np.ndarray, old: np.ndarray,
+                     outcome: str, propensity: float) -> Estimate:
+    """Paired IPW difference on the same randomized holdout units."""
+    new, old = np.asarray(new, dtype=bool), np.asarray(old, dtype=bool)
+    if len(new) != len(frame) or len(old) != len(frame) or not 0 < propensity < 1:
+        raise ValueError("policy length or propensity is invalid")
+    treated = frame["__treatment"].to_numpy(dtype=float)
+    observed = frame[outcome].to_numpy(dtype=float)
+    if not np.isfinite(observed).all():
+        raise ValueError(f"{outcome} must be finite and numeric")
+    influence = (new.astype(float) - old.astype(float)) * (
+        treated * observed / propensity - (1 - treated) * observed / (1 - propensity))
+    return _estimate(influence)
+
+
 def estimate_cost(frame: pd.DataFrame, policy: np.ndarray, cost_column: str, propensity: float) -> Estimate:
     policy = np.asarray(policy, dtype=bool)
     if len(policy) != len(frame) or not 0 < propensity < 1:
