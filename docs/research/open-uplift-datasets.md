@@ -13,6 +13,11 @@
 | [MegaFon Uplift](https://www.uplift-modeling.com/en/latest/api/datasets/fetch_megafon.html) | 模拟生成的电信营销数据，训练集 600,000 行 | `conversion`；50 个匿名特征 | 非真实随机实验，也没有收入或实际成本 | 不用于本项目的真实数据验证 |
 | [Udacity Starbucks 促销实验](https://github.com/udacity/DSND_Term2/tree/master/portfolio_exercises/Experiments) | 已发布的 `training.csv` 有 84,534 条，随机发促销/不发促销；7 个匿名特征 | purchase；课程设定每次促销 $0.15 | 没有逐用户实收毛利或真实核销成本，也没有 App 活跃标签；仓库 LICENSE 与 README 授权声明不一致，复用前要核对 | 固定 RCT 上的预算策略端到端评测；费用只作题设成本 |
 | [CUVET-policy](https://huggingface.co/datasets/anonadata/CUVET-policy) | 在线广告平台 2 周 A/B，5 档随机出价策略，约 86.7M 条 | value、cost | 广告出价而非发券；cost 是广告成本，不是券成本；数据集卡网页本次未能打开，字段与授权需下载前再核实 | 预算约束多 treatment 策略优化参考 |
+| [ALI-BRANDLIFT](https://github.com/aifor/eeuen) | 阿里巴巴研究代码说明为真实品牌广告实验采样，含 treatment 与 exposure | visit；稀疏特征 | 广告而非优惠券，无实际券成本；[天池原链接](https://tianchi.aliyun.com/dataset/94883)本次跳转到数据集首页，无法确认下载与授权 | 若能取得原始文件，作为平台访问 uplift 候选 |
+| [天池 O2O 优惠券](https://tianchi.aliyun.com/dataset/59) | 真实优惠券领取、使用预测场景；公开赛题未说明随机发券和对照分组 | 优惠券使用 | 领券或用券并不等于随机发券；无法直接评估发券的增量效果或净收益 | 券特征、核销预测与数据映射参考 |
+| [淘宝用户购物行为](https://tianchi.aliyun.com/dataset/649) | 淘宝用户行为日志，非随机营销试验 | 浏览、收藏、加购、购买及时间 | 没有营销 treatment/control、发券成本 | 用户画像与行为序列特征参考 |
+| [快手 KuaiRand](https://kuairand.com/) | App 推荐流随机视频曝光；有 12 类反馈及用户、视频特征 | 点击、点赞、观看时长等 | 随机的是视频曝光，不是发券；没有券成本或用户级利润 | App 推荐策略与离线评估参考 |
+| [ZOZOTOWN Open Bandit Dataset](https://github.com/st-tech/zr-obp/tree/master/obd) | 电商平台推荐位的随机策略实验，约 26M 次曝光，记录动作概率 | 点击 | 干预是商品推荐而非优惠券；没有活跃、交易毛利或券成本 | 多动作策略和逆概率离线评估参考 |
 
 ## 关键来源和核对
 
@@ -21,6 +26,9 @@
 - [scikit-uplift 的 Lenta 数据说明](https://www.uplift-modeling.com/en/latest/api/datasets/fetch_lenta.html) 将 `response_att` 定义为到店，字段表列出干预前购买、折扣和访问间隔特征；[X5 赛题原文](https://ods.ai/competitions/x5-retailhero-uplift-modeling/data) 将 `target` 定义为短信后购买，`purchases.csv` 是干预前购买记录。两者页面未说明随机分组机制、逐用户结果期成本及概率；仅有 treatment/control 列不足以证明随机试验。[scikit-uplift 的 MegaFon 数据说明](https://www.uplift-modeling.com/en/latest/api/datasets/fetch_megafon.html) 明确标注该数据为模拟生成，因此排除真实数据验证。
 - [Udacity 官方 notebook](https://github.com/udacity/DSND_Term2/blob/master/portfolio_exercises/Experiments/Starbucks.ipynb) 写明随机分组、字段、$10/$0.15 的评分规则；本项目只用了题设的 $0.15 发送成本，没有把 $10 当成实际用户收入。[仓库 README](https://github.com/udacity/DSND_Term2) 写 CC BY-NC-ND 4.0，但 GitHub 显示仓库有 MIT LICENSE，故不推断数据能商用或再分发。
 - [CUVET 论文](https://openreview.net/pdf?id=ue4YbN3wgh) 说明 86.7M 个出价机会、随机 5 档处理、value/cost 与预算优化。[Hugging Face 索引](https://huggingface.co/datasets?license=license%3Acc-by-nc-sa-4.0&p=78&sort=trending) 显示该数据集在 CC BY-NC-SA 4.0 列表中；其卡片本次未能打开，进一步使用前应以数据卡原文为准。
+- [EEUEN 作者仓库](https://github.com/aifor/eeuen) 将 ALI-BRANDLIFT 标为阿里巴巴真实品牌 uplift 实验采样，列出 treat、visit、exposure；本次打开其天池下载链接会跳转首页，因此不能声称已可获取。[阿里零售促销随机实验论文](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3029707)虽报告超过一亿用户的随机发券实验，但本次未找到公开原始数据，不能当作可下载数据集。
+- [天池 O2O 赛题说明](https://tianchi.aliyun.com/forum/post/3860) 的目标是预测领券后的使用；[淘宝移动推荐赛题](https://tianchi.aliyun.com/competition/entrance/1/information?from=oldUrl) 列出浏览、收藏、加购、购买与时间等行为字段。公开说明没有给出可用于发券因果评估的随机对照设计。
+- [KuaiRand 官方页](https://kuairand.com/) 明确随机干预的是视频曝光，提供行为日志与下载地址；[Open Bandit Dataset 作者仓库](https://github.com/st-tech/zr-obp/tree/master/obd) 说明随机推荐策略、已知动作概率和点击结果。两者适合推荐/策略评估，但目标与发券促活不同。
 
 ## 对项目的选择
 
