@@ -1,4 +1,4 @@
-"""Compare Agent search with and without validation-only cross-task lessons."""
+"""Compare Agent search with and without same-task, dataset-bound lessons."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _invoke(command: list[str]) -> None:
 
 def _cli(task: Task, command: str, output: Path, search_id: str, image: str,
          device: str) -> list[str]:
-    return [sys.executable, "-m", "coupon_lab.cli", command, str(task.manifest),
+    return [sys.executable, "-m", "promolift.cli", command, str(task.manifest),
             "--budget-kind", task.budget.kind, "--budget", str(task.budget.value),
             "--seed", str(task.seed), "--candidate", str(task.candidate),
             "--objective", task.objective, "--search-id", search_id,
@@ -36,8 +36,8 @@ def _champion(journal: dict, root: Path) -> Path:
 
 def run_benchmark(tasks: list[Task], *, output: Path, agent_config: Path,
                   sandbox_image: str, device: str = "cuda", bootstrap_reps: int = 2000) -> dict:
-    if len(tasks) < 2 or len({task.dataset_sha256 for task in tasks}) < 2:
-        raise ValueError("benchmark needs at least two distinct randomized datasets")
+    if not tasks:
+        raise ValueError("benchmark needs at least one randomized task")
     if len({task.name for task in tasks}) != len(tasks):
         raise ValueError("benchmark task names must be unique")
     if bootstrap_reps < 2:
@@ -85,13 +85,13 @@ def run_benchmark(tasks: list[Task], *, output: Path, agent_config: Path,
             }
     for task in tasks:
         verify_task(task)
-        print(f"paired test: {task.name}", flush=True)
+        print(f"paired test of same-task experience: {task.name}", flush=True)
         plain_root = plain_dir / task.name
         memory_root = memory_dir / task.name
         plain = json.loads((plain_root / "journal.json").read_text())
         memory = json.loads((memory_root / "journal.json").read_text())
         compare_output = output / "paired" / task.name
-        comparison = [sys.executable, "-m", "coupon_lab.cli", "run", str(task.manifest),
+        comparison = [sys.executable, "-m", "promolift.cli", "run", str(task.manifest),
                       "--budget-kind", task.budget.kind, "--budget", str(task.budget.value),
                       "--seed", str(task.seed), "--candidate", str(_champion(memory, memory_root)),
                       "--compare-candidate", str(_champion(plain, plain_root)),
@@ -119,7 +119,7 @@ def run_benchmark(tasks: list[Task], *, output: Path, agent_config: Path,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark Agent search across frozen RCT tasks")
+    parser = argparse.ArgumentParser(description="Benchmark dataset-bound Agent experience on frozen RCT tasks")
     parser.add_argument("tasks", nargs="+", type=Path)
     parser.add_argument("--agent-config", type=Path, required=True)
     parser.add_argument("--sandbox-image", required=True)

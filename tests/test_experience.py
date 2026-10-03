@@ -3,19 +3,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coupon_lab.experience import load_experience
+from promolift.experience import load_experience
 
 
 class ExperienceTests(unittest.TestCase):
-    def test_only_other_finalized_tasks_validation_lessons_are_retrieved(self):
+    def test_lessons_require_same_dataset_version_and_evaluation_task(self):
+        task = {"dataset": "dataset-v1", "manifest": "manifest-v1", "objective": "conversion",
+                "budget": {"kind": "count", "value": 0.2}, "seed": 42,
+                "framework": "evaluator-v1", "strict_data": False}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name, dataset, finalized in (("other", "other-dataset", True),
-                                             ("same", "current-dataset", True),
-                                             ("unfinished", "third-dataset", False)):
+            variants = (("matching", {}, True), ("changed-data", {"dataset": "dataset-v2"}, True),
+                        ("changed-schema", {"manifest": "manifest-v2"}, True),
+                        ("changed-objective", {"objective": "revenue"}, True),
+                        ("unfinished", {}, False))
+            for name, changes, finalized in variants:
                 path = root / name
                 path.mkdir()
-                journal = {"task": {"dataset": dataset, "objective": "conversion"},
+                journal = {"task": {**task, **changes},
                            "baseline": {"score": 0.01},
                            "steps": [{"status": "evaluated", "operator": "improve",
                                       "hypothesis": name, "score": 0.02}],
@@ -23,8 +28,8 @@ class ExperienceTests(unittest.TestCase):
                 if not finalized:
                     del journal["final"]
                 (path / "journal.json").write_text(json.dumps(journal))
-            lessons = load_experience(root, "current-dataset")
-            self.assertEqual([item["hypothesis"] for item in lessons], ["other"])
+            lessons = load_experience(root, task)
+            self.assertEqual([item["hypothesis"] for item in lessons], ["matching"])
             self.assertEqual(lessons[0]["validation_delta"], 0.01)
             self.assertNotIn("NEVER_SEND_TO_AGENT", json.dumps(lessons))
 

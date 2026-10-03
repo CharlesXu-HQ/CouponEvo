@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from coupon_lab.evaluate import Budget
-from coupon_lab.search import run_search
+from promolift.evaluate import Budget
+from promolift.search import run_search
 
 
 class SearchTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class SearchTests(unittest.TestCase):
                           "probability": 0.5, "probability_source": "protocol",
                           "probability_reference": "test-protocol"},
         }))
-        self.seed = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        self.seed = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
         self.kwargs = dict(manifest_path=self.manifest, budget=Budget("count", 0.2),
                            seed=7, output=self.root / "runs", initial_candidate=self.seed,
                            objective="active", search_id="agent-search", device="cpu")
@@ -52,6 +52,8 @@ class SearchTests(unittest.TestCase):
         self.assertEqual([step["status"] for step in first["steps"]], ["evaluated", "evaluated"])
         self.assertEqual(len(contexts), 2)
         self.assertEqual(len(contexts[1]["history"]), 2)
+        self.assertEqual(contexts[0]["dataset_sha256"], first["task"]["dataset"])
+        self.assertEqual(contexts[0]["manifest_sha256"], first["task"]["manifest"])
         self.assertTrue((self.root / "runs/agent-search/steps/step-001/candidate.py").exists())
         self.assertEqual(first["baseline"]["report"]["holdout"], "validation")
         scores = {"seed": first["baseline"]["score"]}

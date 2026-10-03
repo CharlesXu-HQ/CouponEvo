@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from coupon_lab.benchmark import run_benchmark
-from coupon_lab.tasks import load_task
+from promolift.benchmark import run_benchmark
+from promolift.tasks import load_task
 
 
 class BenchmarkTests(unittest.TestCase):
@@ -73,7 +73,7 @@ class BenchmarkTests(unittest.TestCase):
 
         def fake_invoke(command):
             calls.append(command)
-            kind = command[command.index("coupon_lab.cli") + 1]
+            kind = command[command.index("promolift.cli") + 1]
             directory = Path(command[command.index("--output") + 1])
             if kind == "search":
                 root = directory / command[command.index("--search-id") + 1]
@@ -95,17 +95,27 @@ class BenchmarkTests(unittest.TestCase):
                 report.write_text(json.dumps({"paired_vs_baseline_bootstrap": {
                     "active": {"active": {"mean": 0.01, "lower": -0.01, "upper": 0.03}}}}))
 
-        with patch("coupon_lab.benchmark._invoke", side_effect=fake_invoke):
+        with patch("promolift.benchmark._invoke", side_effect=fake_invoke):
             result = run_benchmark(tasks, output=self.root / "bench", agent_config=self.config,
                                    sandbox_image="sandbox:test", bootstrap_reps=20)
-        searches = [cmd for cmd in calls if cmd[cmd.index("coupon_lab.cli") + 1] == "search"]
-        comparisons = [cmd for cmd in calls if cmd[cmd.index("coupon_lab.cli") + 1] == "run"]
+        searches = [cmd for cmd in calls if cmd[cmd.index("promolift.cli") + 1] == "search"]
+        comparisons = [cmd for cmd in calls if cmd[cmd.index("promolift.cli") + 1] == "run"]
         self.assertEqual(len(searches), 4)
         self.assertEqual(len(comparisons), 2)
         self.assertTrue(all(cmd[cmd.index("--max-steps") + 1] == "1" for cmd in searches))
         self.assertTrue(all("--sandbox-image" in cmd for cmd in calls))
         self.assertTrue(all("--final" not in cmd for cmd in searches))
+        self.assertTrue(all(command[command.index("--experience-dir") + 1] ==
+                            str((self.root / "bench/plain").resolve())
+                            for command in searches if "--experience-dir" in command))
         self.assertEqual(result["results"]["experience"]["first"]["paired_vs_plain"]["mean"], 0.01)
+
+    def test_benchmark_accepts_one_dataset(self):
+        task = load_task(self.task("only"))
+        with patch("promolift.benchmark._invoke", side_effect=RuntimeError("submitted")):
+            with self.assertRaisesRegex(RuntimeError, "submitted"):
+                run_benchmark([task], output=self.root / "bench", agent_config=self.config,
+                              sandbox_image="sandbox:test")
 
 
 if __name__ == "__main__":

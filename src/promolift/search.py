@@ -47,7 +47,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
               compare_candidate: Path | None = None, feature_gaps: Path | None = None,
               final: bool = False, bootstrap_reps: int = 0,
               sandbox_image: str | None = None) -> dict:
-    command = [sys.executable, "-m", "coupon_lab.cli", "run", str(manifest),
+    command = [sys.executable, "-m", "promolift.cli", "run", str(manifest),
                "--budget-kind", budget.kind, "--budget", str(budget.value),
                "--seed", str(seed), "--output", str(output),
                "--candidate", str(candidate), "--device", device]
@@ -96,7 +96,9 @@ def _context(journal: dict, root: Path) -> dict:
                                    "score": entry.get("score"), "status": entry["status"],
                                    "report": entry.get("report"), "error": entry.get("error"),
                                    "analysis": entry.get("analysis")}
-    return {"objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
+    return {"dataset_sha256": journal["task"]["dataset"],
+            "manifest_sha256": journal["task"]["manifest"],
+            "objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
             "history": history, "available": available, "best_id": journal["best_id"],
             "experience": journal.get("experience", [])}
 
@@ -193,7 +195,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             raise ValueError("candidate snapshot changed: seed")
         score = _score(report, objective)
         journal = {"task": task, "agent": agent_info,
-                   "experience": (load_experience(experience_dir, task["dataset"])
+                   "experience": (load_experience(experience_dir, task)
                                   if experience_dir else []),
                    "baseline": {"id": "seed", "status": "evaluated",
                                 "candidate": "steps/seed/candidate.py", "candidate_sha256": seed_sha,

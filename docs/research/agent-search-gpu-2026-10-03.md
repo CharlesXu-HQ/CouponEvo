@@ -1,6 +1,6 @@
 # Agent 多轮搜索：目标机 GPU 验证
 
-2026-10-03，在 `charles@192.168.124.8` 的 NVIDIA GeForce RTX 5090 上，使用公开 Starbucks 随机实验数据运行两轮 DeepSeek `deepseek-flash` Agent 搜索。搜索 ID 为 `starbucks-rsi-20261003-v2`，固定目标为购买转化，固定发券成本假设为每人 0.15，平均成本预算为每位候选用户 0.03，切分种子为 42。数据 SHA-256：`4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f`。
+2026-10-03，在 `Linux GPU host` 的 NVIDIA GeForce RTX 5090 上，使用公开 Starbucks 随机实验数据运行两轮 DeepSeek `deepseek-flash` Agent 搜索。搜索 ID 为 `starbucks-rsi-20261003-v2`，固定目标为购买转化，固定发券成本假设为每人 0.15，平均成本预算为每位候选用户 0.03，切分种子为 42。数据 SHA-256：`4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f`。
 
 | 候选 | Agent 假设 | 验证集策略增量转化 | 状态 |
 | --- | --- | ---: | --- |
@@ -16,4 +16,4 @@ Agent 自行选择两次 `improve`，第二轮以第一轮为父候选。每轮�
 - 配对 bootstrap 95% 区间为 `[-0.00106465, 0.00130124]`，跨越零，因此**不能认定最终指标有可靠提升**。
 - 最终运行 ID 为 `cb3670d09d65c80e`，候选 SHA-256 为 `0df50ebd470c7b3766155eb80e16b48760abd3e714b332a65e4b3412a7631445`；报告确认 `holdout=test`、`model_device=cuda`。
 
-完整日志、候选快照、分析和最终报告保存在目标机 `/home/charles/coupon-uplift-lab/runs/starbucks-rsi-20261003-v2/`，副本在本地 `runs/starbucks-rsi-20261003-v2/`（不提交到 Git）。Starbucks 没有 App 活跃标签、真实券核销成本或用户级毛利；这里的目标只能解释为购买转化，不能解释为促活或净收益。公开数据只有字段级的干预前声明，没有逐行时间证据，需要人工复核可能的特征泄漏。
+完整日志、候选快照、分析和最终报告保存在目标机 `$PROJECT_ROOT/runs/starbucks-rsi-20261003-v2/`，副本在本地 `runs/starbucks-rsi-20261003-v2/`（不提交到 Git）。Starbucks 没有 App 活跃标签、真实券核销成本或用户级毛利；这里的目标只能解释为购买转化，不能解释为促活或净收益。公开数据只有字段级的干预前声明，没有逐行时间证据，需要人工复核可能的特征泄漏。

@@ -1,10 +1,13 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "coupon-uplift-lab"
+name = "promolift"
 version = "0.1.0"
+description = "Agent-guided, cost-aware uplift experiments for marketing interventions"
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
 dependencies = ["numpy>=2.0", "pandas>=2.0", "torch>=2.2", "econml>=0.17,<0.18"]
 

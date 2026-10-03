@@ -45,7 +45,7 @@ class DockerSandbox:
                        "--mount", f"type=bind,src={self.source},dst=/opt/coupon-src,readonly",
                        "--mount", f"type=bind,src={self.venv},dst=/opt/venv,readonly",
                        "--env", "PYTHONPATH=/opt/coupon-src", "--env", "PYTHONDONTWRITEBYTECODE=1",
-                       self.image, "/opt/venv/bin/python", "-m", "coupon_lab.sandbox_worker",
+                       self.image, "/opt/venv/bin/python", "-m", "promolift.sandbox_worker",
                        "/input", "/output"]
             if job.get("device") == "cuda":
                 command[2:2] = ["--gpus", "all"]

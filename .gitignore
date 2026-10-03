@@ -4,3 +4,9 @@ runs/
 data/
 .venv/
 *.egg-info/
+.DS_Store
+.pytest_cache/
+.env
+.env.*
+build/
+dist/

@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from coupon_lab.candidate import fit_predict
+from promolift.candidate import fit_predict
 
 try:
     import torch

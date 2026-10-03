@@ -1,6 +1,6 @@
 # 公开数据 GPU 验证（2026-10-03）
 
-目标机：`charles@192.168.124.8`，NVIDIA RTX 5090。所有下面的模型拟合与预测都在目标机使用 PyTorch CUDA 执行；CPU 与 CUDA 模型路径均使用 PyTorch。原始数据和运行产物保存在目标机 `/home/charles/coupon-uplift-lab/data/`、`runs/`，均不进入 Git。
+目标机：`Linux GPU host`，NVIDIA RTX 5090。所有下面的模型拟合与预测都在目标机使用 PyTorch CUDA 执行；CPU 与 CUDA 模型路径均使用 PyTorch。原始数据和运行产物保存在目标机 `$PROJECT_ROOT/data/`、`runs/`，均不进入 Git。
 
 ## Starbucks：完整固定 RCT 评测和 Agent 迭代
 

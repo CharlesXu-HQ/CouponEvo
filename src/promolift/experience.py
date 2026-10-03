@@ -1,4 +1,4 @@
-"""Small, validation-only lessons from completed searches on other datasets."""
+"""Validation-only lessons from completed searches on the same frozen task."""
 
 from __future__ import annotations
 
@@ -6,19 +6,23 @@ import json
 from pathlib import Path
 
 
-def load_experience(directory: Path, dataset_sha: str, limit: int = 5) -> list[dict]:
+_IDENTITY_FIELDS = ("dataset", "manifest", "objective", "budget", "seed", "framework",
+                    "strict_data")
+
+
+def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
     lessons = []
     for path in sorted(Path(directory).glob("*/journal.json")):
         try:
             journal = json.loads(path.read_text())
-            if "final" not in journal or journal["task"]["dataset"] == dataset_sha:
+            previous = journal["task"]
+            if "final" not in journal or any(previous[key] != task[key] for key in _IDENTITY_FIELDS):
                 continue
             baseline = float(journal["baseline"]["score"])
             for step in journal["steps"]:
                 if step["status"] != "evaluated":
                     continue
-                lessons.append({"task_objective": journal["task"]["objective"],
-                                "operator": step["operator"],
+                lessons.append({"source_search": path.parent.name, "operator": step["operator"],
                                 "hypothesis": step["hypothesis"][:500],
                                 "validation_delta": float(step["score"]) - baseline})
         except (KeyError, ValueError, TypeError, OSError):

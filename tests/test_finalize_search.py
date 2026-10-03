@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from coupon_lab.evaluate import Budget
-from coupon_lab.search import finalize_search, run_search
+from promolift.evaluate import Budget
+from promolift.search import finalize_search, run_search
 
 
 class FinalizeSearchTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class FinalizeSearchTests(unittest.TestCase):
                                                           "treated": 1, "probability": 0.5,
                                                           "probability_source": "protocol",
                                                           "probability_reference": "test"}}))
-        self.seed = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        self.seed = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
         self.kwargs = dict(manifest_path=self.manifest, budget=Budget("count", 0.2),
                            seed=7, output=root / "runs", initial_candidate=self.seed,
                            objective="active", search_id="trial", device="cpu")
