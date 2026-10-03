@@ -43,6 +43,59 @@ class RunTests(unittest.TestCase):
     def save_manifest(self):
         self.path.write_text(json.dumps(self.manifest))
 
+    def test_agent_requires_isolated_execution(self):
+        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count",
+                "--budget", "0.2", "--objective", "active", "--search-id", "isolated",
+                "--agent-provider", "deepseek"]
+        with patch.object(sys, "argv", args), self.assertRaises(SystemExit) as error:
+            main()
+        self.assertEqual(error.exception.code, 2)
+
+    def test_candidate_receives_only_declared_training_columns(self):
+        seen = {}
+
+        class FakeSandbox:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def predict(self, _candidate, train, target, _args, _seed, _device):
+                seen["train"] = train
+                seen["target"] = target
+                result = pd.DataFrame({"active_uplift": np.ones(len(target)),
+                                       "gross_margin_uplift": np.ones(len(target)),
+                                       "expected_cost": np.ones(len(target))})
+                result.attrs["model_device"] = "cpu"
+                return result
+
+            def choose(self, *_args):
+                return None
+
+        with patch("coupon_lab.cli.DockerSandbox", FakeSandbox):
+            run_experiment(self.path, Budget("count", 0.2), seed=7,
+                           output=self.root / "runs", sandbox_image="test-image")
+        self.assertEqual(list(seen["train"]), ["x", "__treatment", "active", "margin", "cost"])
+        self.assertEqual(list(seen["target"]), ["x"])
+        self.assertEqual(seen["train"].index.tolist(), list(range(len(seen["train"]))))
+        self.assertEqual(seen["target"].index.tolist(), list(range(len(seen["target"]))))
+
+    def test_cuda_sandbox_requires_measured_gpu_allocation(self):
+        class FakeSandbox:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def predict(self, _candidate, _train, target, _args, _seed, _device):
+                result = pd.DataFrame({"active_uplift": np.ones(len(target)),
+                                       "gross_margin_uplift": np.ones(len(target)),
+                                       "expected_cost": np.ones(len(target))})
+                result.attrs["model_device"] = "cuda"
+                result.attrs["cuda_peak_bytes"] = 0
+                return result
+
+        with patch("coupon_lab.cli.DockerSandbox", FakeSandbox):
+            with self.assertRaisesRegex(ValueError, "allocate a CUDA tensor"):
+                run_experiment(self.path, Budget("count", 0.2), seed=7,
+                               output=self.root / "runs", sandbox_image="test-image", device="cuda")
+
     def test_full_capabilities_and_reproducible_run(self):
         report1 = run_experiment(self.path, Budget("cost", 0.25), seed=11, output=self.root / "runs")
         report2 = run_experiment(self.path, Budget("cost", 0.25), seed=11, output=self.root / "runs")
@@ -382,7 +435,7 @@ class RunTests(unittest.TestCase):
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
-                str(self.root / "runs"), "--agent-provider", "deepseek"]
+                str(self.root / "runs"), "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision):
             with self.assertRaisesRegex(ValueError, "predictions and policies unchanged"):
@@ -404,7 +457,7 @@ class RunTests(unittest.TestCase):
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
-                str(self.root / "runs"), "--agent-provider", "deepseek"]
+                str(self.root / "runs"), "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision), \
                 patch("coupon_lab.cli.analyze_reports_deepseek") as analyze:
@@ -425,7 +478,7 @@ class RunTests(unittest.TestCase):
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
-                str(self.root / "runs"), "--agent-provider", "deepseek"]
+                str(self.root / "runs"), "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision), \
                 patch("coupon_lab.cli.analyze_reports_deepseek") as analyze:
@@ -454,7 +507,7 @@ class RunTests(unittest.TestCase):
 
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
-                str(self.root / "runs"), "--agent-config", str(config)]
+                str(self.root / "runs"), "--agent-config", str(config), "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"TEST_AGENT_KEY": "test-key"}), \
                 patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
                 patch("coupon_lab.cli.analyze_reports_deepseek") as analyze:
@@ -486,7 +539,7 @@ class RunTests(unittest.TestCase):
         args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
                 str(self.root / "runs"), "--agent-provider-url", "https://api.deepseek.com",
-                "--agent-model", "deepseek-flash"]
+                "--agent-model", "deepseek-flash", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"AGENT_API_KEY": "test-key"}), \
                 patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
                 patch("coupon_lab.cli.analyze_reports_deepseek"):
@@ -509,7 +562,7 @@ class RunTests(unittest.TestCase):
         args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
                 "--candidate", str(candidate), "--objective", "active", "--max-steps", "1",
                 "--search-id", "test-search", "--output", str(self.root / "runs"),
-                "--agent-provider", "deepseek"]
+                "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("coupon_lab.cli.propose_search_candidate", side_effect=propose), \
                 patch("coupon_lab.cli.analyze_reports_deepseek", return_value={"high": {}}):
@@ -544,7 +597,7 @@ class RunTests(unittest.TestCase):
         args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
                 "--candidate", str(candidate), "--objective", "active", "--max-steps", "1",
                 "--search-id", "finalize-trial", "--output", str(self.root / "runs"),
-                "--agent-provider", "deepseek"]
+                "--agent-provider", "deepseek", "--unsafe-local-execution"]
         proposal = {"operator": "draft", "parent_ids": [], "hypothesis": "candidate",
                     "candidate_py": candidate.read_text() + "\n# experiment\n"}
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \

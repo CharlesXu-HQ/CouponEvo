@@ -1,0 +1,12 @@
+{
+  "name": "hillstrom-revenue",
+  "manifest": "../hillstrom.json",
+  "candidate": "../../src/coupon_lab/candidate.py",
+  "budget": {"kind": "count", "value": 0.2},
+  "objective": "revenue",
+  "seed": 42,
+  "max_steps": 2,
+  "dataset_sha256": "0e5893329d8b93cefecc571777672028290ab69865718020c78c7284f291aece",
+  "manifest_sha256": "2d26091e84245ffc50dc40ec2cc12006dd61c5b535a9c5635cab82519ae50d1d",
+  "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb"
+}

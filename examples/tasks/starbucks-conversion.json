@@ -1,0 +1,12 @@
+{
+  "name": "starbucks-conversion",
+  "manifest": "../starbucks.json",
+  "candidate": "../../src/coupon_lab/candidate.py",
+  "budget": {"kind": "cost", "value": 0.03},
+  "objective": "conversion",
+  "seed": 42,
+  "max_steps": 2,
+  "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+  "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+  "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb"
+}

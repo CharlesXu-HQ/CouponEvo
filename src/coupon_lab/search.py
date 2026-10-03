@@ -14,6 +14,7 @@ from typing import Callable
 from .agent import _require_econml_revision
 from .data import load_dataset
 from .evaluate import Budget
+from .experience import load_experience
 
 
 def _sha(data: bytes) -> str:
@@ -44,13 +45,16 @@ def _score(report: dict, objective: str) -> float:
 def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate: Path,
               device: str, strict_data: bool, timeout_seconds: int,
               compare_candidate: Path | None = None, feature_gaps: Path | None = None,
-              final: bool = False, bootstrap_reps: int = 0) -> dict:
+              final: bool = False, bootstrap_reps: int = 0,
+              sandbox_image: str | None = None) -> dict:
     command = [sys.executable, "-m", "coupon_lab.cli", "run", str(manifest),
                "--budget-kind", budget.kind, "--budget", str(budget.value),
                "--seed", str(seed), "--output", str(output),
                "--candidate", str(candidate), "--device", device]
     if strict_data:
         command.append("--strict-data")
+    if sandbox_image:
+        command.extend(["--sandbox-image", sandbox_image, "--timeout-seconds", str(timeout_seconds)])
     if compare_candidate is not None:
         command.extend(["--compare-candidate", str(compare_candidate)])
     if feature_gaps is not None:
@@ -59,7 +63,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
         command.extend(["--final", "--bootstrap-reps", str(bootstrap_reps)])
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
-                                text=True, timeout=timeout_seconds)
+                                text=True, timeout=timeout_seconds + (45 if sandbox_image else 0))
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"candidate exceeded {timeout_seconds}s execution limit") from error
     if result.returncode:
@@ -93,7 +97,8 @@ def _context(journal: dict, root: Path) -> dict:
                                    "report": entry.get("report"), "error": entry.get("error"),
                                    "analysis": entry.get("analysis")}
     return {"objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
-            "history": history, "available": available, "best_id": journal["best_id"]}
+            "history": history, "available": available, "best_id": journal["best_id"],
+            "experience": journal.get("experience", [])}
 
 
 def _validate_proposal(proposal: dict, available: dict, seed_source: str) -> dict:
@@ -130,14 +135,19 @@ def _validate_proposal(proposal: dict, available: dict, seed_source: str) -> dic
 
 
 def _task(manifest_path: Path, budget: Budget, seed: int, initial_candidate: Path,
-          objective: str, device: str, strict_data: bool) -> dict:
+          objective: str, device: str, strict_data: bool,
+          sandbox_image: str | None = None,
+          experience_dir: Path | None = None) -> dict:
     data = load_dataset(manifest_path, strict=strict_data)
     framework = b"".join(Path(__file__).with_name(name).read_bytes()
-                         for name in ("cli.py", "data.py", "evaluate.py"))
+                         for name in ("cli.py", "data.py", "evaluate.py", "sandbox.py",
+                                      "sandbox_worker.py", "experience.py"))
     return {"dataset": data.source_sha256, "manifest": _sha(manifest_path.read_bytes()),
             "framework": _sha(framework), "initial_candidate": _sha(initial_candidate.read_bytes()),
             "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed,
-            "objective": objective, "device": device, "strict_data": strict_data}
+            "objective": objective, "device": device, "strict_data": strict_data,
+            "sandbox_image": sandbox_image,
+            "experience_dir": str(experience_dir.resolve()) if experience_dir else None}
 
 
 def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
@@ -145,7 +155,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                proposer: Callable[[dict], dict], device: str = "cpu", strict_data: bool = False,
                resume: bool = False, timeout_seconds: int = 3600,
                analyzer: Callable[[dict, dict, Path, Path], dict] | None = None,
-               agent_info: dict | None = None) -> dict:
+               agent_info: dict | None = None, sandbox_image: str | None = None,
+               experience_dir: Path | None = None) -> dict:
     """Run up to max_steps Agent proposals; all candidate scores use validation only."""
     if max_steps < 1 or timeout_seconds < 1:
         raise ValueError("max_steps and timeout_seconds must be positive")
@@ -153,7 +164,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
         raise ValueError("search_id must be a safe directory name")
     manifest_path, initial_candidate, output = (Path(path).resolve() for path in
                                                 (manifest_path, initial_candidate, output))
-    task = _task(manifest_path, budget, seed, initial_candidate, objective, device, strict_data)
+    task = _task(manifest_path, budget, seed, initial_candidate, objective, device, strict_data,
+                 sandbox_image, experience_dir)
     root = output / search_id
     journal_path = root / "journal.json"
     if resume:
@@ -176,11 +188,13 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
         seed_candidate.write_bytes(initial_candidate.read_bytes())
         seed_sha = _sha(seed_candidate.read_bytes())
         report = _evaluate(manifest_path, budget, seed, root / "runs", seed_candidate,
-                           device, strict_data, timeout_seconds)
+                           device, strict_data, timeout_seconds, sandbox_image=sandbox_image)
         if _sha(seed_candidate.read_bytes()) != seed_sha:
             raise ValueError("candidate snapshot changed: seed")
         score = _score(report, objective)
         journal = {"task": task, "agent": agent_info,
+                   "experience": (load_experience(experience_dir, task["dataset"])
+                                  if experience_dir else []),
                    "baseline": {"id": "seed", "status": "evaluated",
                                 "candidate": "steps/seed/candidate.py", "candidate_sha256": seed_sha,
                                 "score": score,
@@ -201,7 +215,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                     if attempt:
                         raise
                     context = {**context, "proposal_error": str(error)}
-            if _task(manifest_path, budget, seed, initial_candidate, objective, device, strict_data) != task:
+            if _task(manifest_path, budget, seed, initial_candidate, objective, device,
+                     strict_data, sandbox_image, experience_dir) != task:
                 raise RuntimeError("search task or dataset changed during proposal")
             step_id = f"step-{len(journal['steps']) + 1:03d}"
             step_dir = root / "steps" / step_id
@@ -215,7 +230,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                        **{key: proposal[key] for key in ("operator", "parent_ids", "hypothesis")}}
             journal["steps"].append(pending)
             _save(journal_path, journal)
-        if _task(manifest_path, budget, seed, initial_candidate, objective, device, strict_data) != task:
+        if _task(manifest_path, budget, seed, initial_candidate, objective, device,
+                 strict_data, sandbox_image, experience_dir) != task:
             raise RuntimeError("search task or dataset changed before evaluation")
         candidate = root / pending["candidate"]
         parent_id = pending["parent_ids"][0] if pending["parent_ids"] else journal["best_id"]
@@ -228,7 +244,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
         try:
             report = _evaluate(manifest_path, budget, seed, root / "runs", candidate,
                                device, strict_data, timeout_seconds, root / parent["candidate"],
-                               gap_path if gap_path.exists() else None)
+                               gap_path if gap_path.exists() else None,
+                               sandbox_image=sandbox_image)
             _verify_candidates(journal, root)
             pending["score"] = _score(report, objective)
             pending["report"] = report
@@ -253,7 +270,9 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
 def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                     initial_candidate: Path, objective: str, search_id: str,
                     device: str = "cpu", strict_data: bool = False,
-                    timeout_seconds: int = 3600, bootstrap_reps: int = 2000) -> dict:
+                    timeout_seconds: int = 3600, bootstrap_reps: int = 2000,
+                    sandbox_image: str | None = None,
+                    experience_dir: Path | None = None) -> dict:
     """Evaluate the frozen validation champion against the seed once on test."""
     if bootstrap_reps < 2 or timeout_seconds < 1:
         raise ValueError("finalize needs at least two bootstrap resamples and a positive timeout")
@@ -266,8 +285,10 @@ def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: P
     if not journal_path.is_file():
         raise ValueError("search journal does not exist")
     journal = json.loads(journal_path.read_text())
+    if experience_dir is None and journal["task"].get("experience_dir"):
+        experience_dir = Path(journal["task"]["experience_dir"])
     if journal["task"] != _task(manifest_path, budget, seed, initial_candidate, objective,
-                                 device, strict_data):
+                                 device, strict_data, sandbox_image, experience_dir):
         raise ValueError("search task, dataset, or evaluator changed")
     _verify_candidates(journal, root)
     if any(step["status"] == "pending" for step in journal["steps"]):
@@ -279,7 +300,8 @@ def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: P
     report = _evaluate(manifest_path, budget, seed, root / "final", root / champion["candidate"],
                        device, strict_data, timeout_seconds,
                        compare_candidate=root / journal["baseline"]["candidate"],
-                       final=True, bootstrap_reps=bootstrap_reps)
+                       final=True, bootstrap_reps=bootstrap_reps,
+                       sandbox_image=sandbox_image)
     journal["final"] = {"candidate_id": champion["id"], "report": report}
     _save(journal_path, journal)
     return report

@@ -13,10 +13,18 @@ python -m coupon_lab.cli run examples/starbucks.json --budget-kind cost --budget
 
 运行产物在 `runs/<run_id>/report.json`、`report.md`、`candidate.py` 和 `split_manifest.json`。切分文件以固定数据版本的行号记录三份样本；随机模型的 PyTorch 种子由执行器固定。默认只评估验证集；选定方案后可加 `--final` 使用测试集。
 
-若本机已安装并登录 Codex CLI，可运行一次自动代码修改与复评：
+若本机已安装并登录 Codex CLI，可运行一次自动代码修改与复评。Agent 生成的候选代码必须在容器内执行，先在 Linux GPU 实验机准备与宿主机 Python 3.12 虚拟环境兼容的镜像：
 
 ```bash
-python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42
+docker build -f Dockerfile.sandbox -t coupon-lab-sandbox:py312-cuda128 .
+export SANDBOX_IMAGE="$(docker image inspect coupon-lab-sandbox:py312-cuda128 --format '{{.Id}}')"
+```
+
+容器只挂载本轮训练样本、留出集特征、候选代码、只读运行时与框架源码；禁用网络、只读根文件系统并限制资源。宿主机虚拟环境默认取当前 Python 的 `sys.prefix`，也可用 `COUPON_LAB_SANDBOX_VENV` 指向 Linux Python 3.12 环境。镜像 ID 会写入实验身份和报告；修改镜像或依赖后应新开任务。
+
+```bash
+python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 \
+  --device cuda --seed 42 --sandbox-image "$SANDBOX_IMAGE"
 ```
 
 Agent 使用本机 Codex CLI 的默认模型；若该模型在当前 CLI 登录账户中不可用，可加 `--agent-model MODEL` 指定可用模型。
@@ -27,7 +35,8 @@ Agent 使用本机 Codex CLI 的默认模型；若该模型在当前 CLI 登录�
 mkdir -p runs
 cp src/coupon_lab/candidate.py runs/my-candidate.py
 python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42 \
-  --agent-provider deepseek --agent-model deepseek-flash --candidate runs/my-candidate.py
+  --agent-provider deepseek --agent-model deepseek-flash --candidate runs/my-candidate.py \
+  --sandbox-image "$SANDBOX_IMAGE"
 ```
 
 Agent 会修改传入的候选文件。DeepSeek 的代码迭代和新报告解读使用 `high` 推理档位；若解读发现疑似特征泄漏，或评测器发现 uplift 低于随机策略、随机基线跨轮漂移、净收益区间跨零、促活与收益策略互有取舍等情况，会追加一次 `max` 复核。两轮结论与触发原因分别保存在 `runs/<run_id>/analysis.json` 和 `analysis.md`；评测指标仍以 `report.json` 为准，Agent 对代码或因果解释的判断需人工核查。报告记录 Agent 提供方、模型、前一轮运行 ID、预测和策略 SHA-256。候选若没有改变验证集预测和发券决策，本轮会报错并恢复候选文件。密钥从环境变量读取，不写入报告或候选代码。
@@ -36,7 +45,8 @@ Agent 会修改传入的候选文件。DeepSeek 的代码迭代和新报告解�
 
 ```bash
 python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda \
-  --candidate runs/my-candidate.py --agent-config examples/agent.deepseek.json
+  --candidate runs/my-candidate.py --agent-config examples/agent.deepseek.json \
+  --sandbox-image "$SANDBOX_IMAGE"
 ```
 
 也可直接传 `--agent-provider-url URL --agent-model MODEL`，并在 `AGENT_API_KEY` 中提供密钥；完整 `/chat/completions` URL 和 API base URL 均可。使用 `api.deepseek.com` 时默认显式发送 `thinking: enabled`；配置中的 `thinking: "enabled"` 可用于代理 DeepSeek 的其他 URL。其他兼容端点可设为 `"omit"`，仍会发送 `reasoning_effort`。端点需支持 Chat Completions、JSON 输出及所选推理档位；若请求被拒绝，程序会报错，不会主动降级到关闭思考模式。API key 不放入配置文件或命令行。
@@ -50,7 +60,8 @@ python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budg
 ```bash
 python -m coupon_lab.cli search examples/starbucks.json --budget-kind cost --budget 0.03 \
   --objective conversion --max-steps 3 --search-id starbucks-search-01 \
-  --device cuda --agent-provider deepseek --agent-model deepseek-flash
+  --device cuda --agent-provider deepseek --agent-model deepseek-flash \
+  --sandbox-image "$SANDBOX_IMAGE"
 ```
 
 也可用 `--agent-config` 或 `--agent-provider-url`、`--agent-model` 和密钥环境变量配置其他兼容服务。`runs/<search-id>/journal.json` 保存基线、每轮假设、父候选、状态、验证集分数和分析；`steps/` 保存候选快照，`runs/` 保存评估报告。失败候选留在日志中供 Agent 修复；中断后用相同参数加 `--resume` 继续，`--max-steps` 可以增大。Agent 代码迭代和报告分析使用 `high`，已有反常 uplift、疑似泄漏或成本权衡不清时仍按上述规则进行 `max` 复核。
@@ -59,14 +70,29 @@ python -m coupon_lab.cli search examples/starbucks.json --budget-kind cost --bud
 
 ```bash
 python -m coupon_lab.cli finalize examples/starbucks.json --budget-kind cost --budget 0.03 \
-  --objective conversion --search-id starbucks-search-01 --device cuda --bootstrap-reps 2000
+  --objective conversion --search-id starbucks-search-01 --device cuda --bootstrap-reps 2000 \
+  --sandbox-image "$SANDBOX_IMAGE"
 ```
 
-最终报告位于 `runs/<search-id>/final/<run_id>/`，含与初始候选的逐用户配对差值和 bootstrap 区间；完成最终测试后，该搜索不能继续迭代。候选评估在独立 Python 进程运行，便于限制单次耗时并保留失败记录；**这不是安全沙箱**，生成代码仍可访问运行用户有权限读取的文件。当前应只在受信任的离线实验环境运行，接入敏感业务数据前需要容器级文件和网络隔离。公开 Starbucks 只有购买转化及假设发送成本，不能据此判定 App 促活或真实净收益提升。
+最终报告位于 `runs/<search-id>/final/<run_id>/`，含与初始候选的逐用户配对差值和 bootstrap 区间；完成最终测试后，该搜索不能继续迭代。`search` 和 `agent` 默认要求 `--sandbox-image`；只有显式传 `--unsafe-local-execution` 才允许直接运行生成代码。容器隔离需要可信的 Docker 守护进程、镜像及宿主机；接入业务数据前仍需对镜像、虚拟环境和宿主机权限做部署审查。公开 Starbucks 只有购买转化及假设发送成本，不能据此判定 App 促活或真实净收益提升。
+
+## 固定任务与跨任务基准
+
+`examples/tasks/` 将数据 SHA-256、初始候选、目标、预算、随机种子和 Agent 最大提案数固定下来。下载 [Starbucks](examples/README.md) 与 [Hillstrom](examples/README.md) 后，可用同一 Agent 配置与镜像运行两阶段基准：
+
+```bash
+python -m coupon_lab.benchmark examples/tasks/starbucks-conversion.json \
+  examples/tasks/hillstrom-revenue.json --agent-config examples/agent.deepseek.json \
+  --sandbox-image "$SANDBOX_IMAGE" --device cuda --output runs/benchmark-01
+```
+
+第一阶段对每个任务做无经验搜索；第二阶段只把其他数据集已完成搜索的**验证集**假设和分数差值提供给 Agent。两个阶段每项任务使用相同的初始候选、预算、种子和提案数。`summary.json` 记录验证集分数、失败次数、用时和独立测试集上“有经验减无经验”的逐用户配对 bootstrap 区间。测试集结果不会进入跨任务经验。每个基准需使用新的输出目录；多个数据集上的效果才能用于判断经验复用是否稳定。这里没有训练 Agent 自身的权重；Agent 仍会编写和调优 uplift 候选模型。
 
 ## Dataset manifest
 
 参照 [starbucks.json](examples/starbucks.json) 映射固定 CSV。`treatment` 选定一个对照臂和一个干预臂；其他臂被过滤。`outcomes` 至少有一个非成本结果，可包含 `active`、`visit`、`click`、`conversion`、`revenue`、`gross_margin`、`coupon_cost`。特征须在随机分组前可用，且不得包含分组、结果或成本字段。有用户 ID 时要求一人一行；若没有用户 ID，会按行切分并在报告中提示无法检查同一用户跨切分。
+
+未来的 App 促活随机试验可按[业务数据接入约定](docs/business-rct-contract.md)提供固定数据和现行发券规则；目前没有真实业务数据，因此不会声称公开邮件或购买数据验证了实际促活与券成本收益。
 
 `probability` 优先填实验方案的处理概率，同时填写 `probability_source`（`protocol`、`assignment_log` 或 `empirical`）及可审阅的 `probability_reference`；来源缺失时拒绝评估。只有确认简单随机分组且公开样本未按组差异抽样时，才可填 `"empirical"` 并声明这两个前提。若有逐行 `assignment_time_column` 和每个特征对应的 `feature_time_columns`，加载器会拒绝记录时间晚于或等于分组时间的特征；`--strict-data` 要求这组时间证据齐全。Starbucks 只有字段级的干预前声明，报告会标为 `declared_only`，不能据此证明没有特征泄漏。随机化来源引用也需要人工核查试验执行情况。
 
@@ -87,4 +113,4 @@ python -m coupon_lab.cli run examples/starbucks.json --budget-kind cost --budget
   --candidate runs/new-candidate.py --compare-candidate runs/baseline-candidate.py --final --bootstrap-reps 2000
 ```
 
-验证集配对区间不能作为多轮筛选后的最终提升证据；测试集也应只在候选与指标确定后使用一次。若现行业务规则可复现，可把它实现为另一份候选文件并用 `--compare-candidate` 比较；当前尚未取得该规则。当前只有一种干预相对不干预、一次决策、CSV 输入、数值和类别特征的 EconML T-learner，默认 PyTorch 岭回归结果模型。CPU 和 CUDA 路径都用 PyTorch 训练和预测；`--device cuda` 要求候选算法在 GPU 上执行并确认设备。特征读取与预处理仍由 CPU 完成。该原型不执行线上发券，不自动采集数据，也不将公开数据缺少的收入或券成本补造成真实标签。公开数据的授权和字段差异见[调研记录](docs/research/open-uplift-datasets.md)；三份公开数据在目标机的测试结果见[GPU 验证记录](docs/research/gpu-validation-2026-10-03.md)，本次 Agent 多轮搜索见[实验记录](docs/research/agent-search-gpu-2026-10-03.md)。
+验证集配对区间不能作为多轮筛选后的最终提升证据；测试集也应只在候选与指标确定后使用一次。若现行业务规则可复现，可把它实现为另一份候选文件并用 `--compare-candidate` 比较；当前尚未取得该规则。当前只有一种干预相对不干预、一次决策、CSV 输入、数值和类别特征的 EconML T-learner，默认 PyTorch 岭回归结果模型。CPU 和 CUDA 路径都用 PyTorch 训练和预测；`--device cuda` 要求候选算法确认设备，容器运行还要求观测到 CUDA 张量分配。特征读取与预处理仍由 CPU 完成。该原型不执行线上发券，不自动采集数据，也不将公开数据缺少的收入或券成本补造成真实标签。公开数据的授权和字段差异见[调研记录](docs/research/open-uplift-datasets.md)；三份公开数据在目标机的测试结果见[GPU 验证记录](docs/research/gpu-validation-2026-10-03.md)，本次 Agent 多轮搜索见[实验记录](docs/research/agent-search-gpu-2026-10-03.md)，跨任务结果见[基准记录](docs/research/agent-benchmark-gpu-2026-10-03.md)。

@@ -20,6 +20,7 @@ from .analysis import analyze_reports_deepseek
 from .data import load_dataset, split_dataset
 from .evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
 from .provider import ApiProvider
+from .sandbox import DockerSandbox
 from .search import finalize_search, run_search
 
 
@@ -70,7 +71,8 @@ def _split_sha(parts) -> str:
 
 def _candidate_policies(predictions: pd.DataFrame, data, budget: Budget,
                         primary: str, money: str | None, candidate_path: Path,
-                        seed: int) -> tuple[dict[str, np.ndarray], np.ndarray | None]:
+                        seed: int, sandbox: DockerSandbox | None = None,
+                        device: str = "cpu") -> tuple[dict[str, np.ndarray], np.ndarray | None]:
     cost_col = data.outcomes.get("coupon_cost")
     if cost_col:
         expected_cost = predictions["expected_cost"].to_numpy(dtype=float)
@@ -89,10 +91,15 @@ def _candidate_policies(predictions: pd.DataFrame, data, budget: Budget,
         if expected_cost is not None and not (money == "gross_margin" and data.manifest.get("margin_includes_coupon_cost")):
             score = score - expected_cost
         scores[label] = score
-    chooser = getattr(_candidate_module(candidate_path), "choose_policy", None)
+    chooser = getattr(_candidate_module(candidate_path), "choose_policy", None) if sandbox is None else None
     policies = {}
     for name, score in scores.items():
-        if chooser:
+        if sandbox is not None:
+            raw = sandbox.choose(candidate_path, score, expected_cost, budget.kind, budget.value,
+                                 seed, device)
+            if raw is None:
+                raw = select_policy(score, expected_cost, budget)
+        elif chooser:
             numpy_state, python_state = np.random.get_state(), random.getstate()
             devices = [torch.cuda.current_device()] if torch.cuda.is_available() else []
             try:
@@ -210,11 +217,13 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
                    candidate_path: Path | None = None, final: bool = False,
                    feature_gaps: Path | None = None, agent_info: dict | None = None,
                    device: str = "cpu", compare_candidate_path: Path | None = None,
-                   strict_data: bool = False, bootstrap_reps: int = 0) -> dict:
+                   strict_data: bool = False, bootstrap_reps: int = 0,
+                   sandbox_image: str | None = None, timeout_seconds: int = 3600) -> dict:
     if bootstrap_reps and (not final or bootstrap_reps < 2):
         raise ValueError("bootstrap intervals require --final and at least two resamples")
     manifest_path, output = Path(manifest_path), Path(output)
     candidate_path = Path(candidate_path or Path(__file__).with_name("candidate.py"))
+    sandbox = DockerSandbox(sandbox_image, timeout_seconds=timeout_seconds) if sandbox_image else None
     manifest_bytes, candidate_bytes = manifest_path.read_bytes(), candidate_path.read_bytes()
     compare_candidate_path = Path(compare_candidate_path) if compare_candidate_path else None
     compare_bytes = compare_candidate_path.read_bytes() if compare_candidate_path else None
@@ -228,7 +237,12 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
                       "outcomes": outcome_cols, "cost": cost_col}
     if device == "cuda":
         candidate_args["device"] = "cuda"
-    predictions = _predict(candidate_path, parts.train, target[data.features], candidate_args, seed, device)
+    train_columns = list(dict.fromkeys([*data.features, "__treatment", *outcome_cols.values(),
+                                        *([cost_col] if cost_col else [])]))
+    candidate_train = parts.train[train_columns].reset_index(drop=True)
+    candidate_target = target[data.features].reset_index(drop=True)
+    predictions = (sandbox.predict(candidate_path, candidate_train, candidate_target, candidate_args, seed, device)
+                   if sandbox else _predict(candidate_path, candidate_train, candidate_target, candidate_args, seed, device))
     expected_columns = {f"{name}_uplift" for name in outcome_cols}
     if cost_col:
         expected_columns.add("expected_cost")
@@ -236,6 +250,8 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         raise ValueError("candidate returned invalid prediction columns or row count")
     if device == "cuda" and predictions.attrs.get("model_device") != "cuda":
         raise ValueError("candidate did not confirm CUDA model training and prediction")
+    if sandbox and device == "cuda" and predictions.attrs.get("cuda_peak_bytes", 0) <= 0:
+        raise ValueError("candidate did not allocate a CUDA tensor in the sandbox")
     prediction_sha = _sha(predictions[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
     ranking = {name: ranking_diagnostic(target, predictions[f"{name}_uplift"].to_numpy(),
                                         column, data.propensity)
@@ -245,7 +261,7 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         primary = next(iter(outcome_cols))
     money = "gross_margin" if "gross_margin" in outcome_cols else "revenue" if "revenue" in outcome_cols else None
     policies, expected_cost = _candidate_policies(predictions, data, budget, primary, money,
-                                                   candidate_path, seed)
+                                                   candidate_path, seed, sandbox, device)
     policies["random"] = _random_policy(len(target), expected_cost, budget, seed)
     results = {}
     for name, policy in policies.items():
@@ -293,14 +309,18 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
     paired = None
     baseline_prediction_sha = None
     if compare_candidate_path:
-        baseline = _predict(compare_candidate_path, parts.train, target[data.features], candidate_args, seed, device)
+        baseline = (sandbox.predict(compare_candidate_path, candidate_train, candidate_target,
+                                    candidate_args, seed, device) if sandbox else
+                    _predict(compare_candidate_path, candidate_train, candidate_target, candidate_args, seed, device))
         if not isinstance(baseline, pd.DataFrame) or not expected_columns <= set(baseline) or len(baseline) != len(target):
             raise ValueError("comparison candidate returned invalid predictions")
         if device == "cuda" and baseline.attrs.get("model_device") != "cuda":
             raise ValueError("comparison candidate did not confirm CUDA training and prediction")
+        if sandbox and device == "cuda" and baseline.attrs.get("cuda_peak_bytes", 0) <= 0:
+            raise ValueError("comparison candidate did not allocate a CUDA tensor in the sandbox")
         baseline_prediction_sha = _sha(baseline[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
         old_policies, _ = _candidate_policies(baseline, data, budget, primary, money,
-                                              compare_candidate_path, seed)
+                                              compare_candidate_path, seed, sandbox, device)
         paired = {}
         for name, policy in policies.items():
             if name == "random" or name not in old_policies:
@@ -341,13 +361,15 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
     if bootstrap_reps:
         notes.append(f"最终留出集的配对差值另用 {bootstrap_reps} 次用户级有放回抽样计算百分位区间。")
     framework_sha = _sha(b"".join(Path(__file__).with_name(name).read_bytes()
-                              for name in ("cli.py", "data.py", "evaluate.py")))
+                              for name in ("cli.py", "data.py", "evaluate.py", "sandbox.py",
+                                           "sandbox_worker.py", "experience.py")))
     identity = {"dataset": data.source_sha256, "manifest": _sha(manifest_bytes),
                 "framework": framework_sha,
                 "candidate": _sha(candidate_bytes), "split": _split_sha(parts),
                 "prediction": prediction_sha, "policy": _policy_shas(policies),
                 "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed, "final": final,
                 "model_device": device, "strict_data": strict_data, "bootstrap_reps": bootstrap_reps,
+                "execution": f"docker:{sandbox_image}" if sandbox else "trusted_local",
                 "feature_gaps": _sha(gap_bytes) if gap_bytes is not None else None}
     if compare_bytes is not None:
         identity["compare_candidate"] = _sha(compare_bytes)
@@ -362,6 +384,8 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
               "prediction_sha256": prediction_sha,
               "split_sha256": identity["split"], "budget": identity["budget"], "seed": seed,
               "model_device": device,
+              "cuda_peak_bytes": predictions.attrs.get("cuda_peak_bytes") if sandbox else None,
+              "execution": identity["execution"],
               "holdout": "test" if final else "validation", "holdout_size": len(target),
               "features": data.features, "outcome_columns": data.outcomes,
               "data_validation": data.validation,
@@ -431,6 +455,9 @@ def main() -> None:
     parser.add_argument("--search-id", help="directory name for one resumable search")
     parser.add_argument("--resume", action="store_true", help="continue an existing search journal")
     parser.add_argument("--timeout-seconds", type=int, default=3600, help="per-candidate evaluation timeout")
+    parser.add_argument("--sandbox-image", help="Docker image for isolated candidate execution")
+    parser.add_argument("--unsafe-local-execution", action="store_true", help="run generated code without isolation")
+    parser.add_argument("--experience-dir", type=Path, help="completed search journals for cross-task lessons")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
     parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
     parser.add_argument("--agent-provider-url", help="API base URL or full chat/completions endpoint")
@@ -445,6 +472,8 @@ def main() -> None:
                                                          args.agent_config is not None or args.agent_provider_url is not None)
     if args.command == "search" and not api_mode:
         parser.error("search needs an API Agent provider URL/config or --agent-provider deepseek")
+    if args.command in {"agent", "search"} and not args.sandbox_image and not args.unsafe_local_execution:
+        parser.error("Agent code requires --sandbox-image, or explicit --unsafe-local-execution")
     provider_name = ("api" if args.agent_provider == "codex" and api_mode else args.agent_provider)
     api_provider = None
     if api_mode:
@@ -480,7 +509,9 @@ def main() -> None:
                                  initial_candidate=args.candidate, objective=args.objective,
                                  search_id=args.search_id, device=args.device,
                                  strict_data=args.strict_data, timeout_seconds=args.timeout_seconds,
-                                 bootstrap_reps=args.bootstrap_reps or 2000)
+                                 bootstrap_reps=args.bootstrap_reps or 2000,
+                                 sandbox_image=args.sandbox_image,
+                                 experience_dir=args.experience_dir)
         print(args.output / args.search_id / "final" / report["run_id"] / "report.md")
         return
     if args.command == "search":
@@ -490,6 +521,8 @@ def main() -> None:
                              proposer=lambda context: propose_search_candidate(api_provider, context),
                              device=args.device, strict_data=args.strict_data,
                              resume=args.resume, timeout_seconds=args.timeout_seconds,
+                             sandbox_image=args.sandbox_image,
+                             experience_dir=args.experience_dir,
                              agent_info={"provider_url": api_provider.url, "model": api_provider.model,
                                          "thinking": api_provider.thinking,
                                          "iteration_effort": api_provider.iteration_effort,
@@ -504,7 +537,8 @@ def main() -> None:
         if args.command == "agent":
             prior = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
                                    candidate_path=args.candidate, device=args.device,
-                                   strict_data=args.strict_data)
+                                   strict_data=args.strict_data, sandbox_image=args.sandbox_image,
+                                   timeout_seconds=args.timeout_seconds)
             args.feature_gaps = args.output / "agent-feature-gaps.md"
             args.feature_gaps.unlink(missing_ok=True)
             prior_report = args.output / prior["run_id"] / "report.md"
@@ -531,7 +565,8 @@ def main() -> None:
                                 device=args.device, strict_data=args.strict_data,
                                 bootstrap_reps=args.bootstrap_reps,
                                 compare_candidate_path=(args.output / prior["run_id"] / "candidate.py"
-                                                        if args.command == "agent" else args.compare_candidate))
+                                                        if args.command == "agent" else args.compare_candidate),
+                                sandbox_image=args.sandbox_image, timeout_seconds=args.timeout_seconds)
         if (args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"] and
                 prior["policy_sha256"] == report["policy_sha256"]):
             raise ValueError("Agent revision left predictions and policies unchanged")

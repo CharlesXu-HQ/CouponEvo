@@ -1,0 +1,14 @@
+{
+  "dataset": "../data/hillstrom.csv",
+  "treatment": {
+    "column": "segment",
+    "control": "No E-Mail",
+    "treated": "Mens E-Mail",
+    "probability": 0.5,
+    "probability_source": "protocol",
+    "probability_reference": "https://blog.minethatdata.com/2008/03/minethatdata-e-mail-analytics-and-data.html; conditional probability after selecting Mens E-Mail and No E-Mail from three equally randomized arms"
+  },
+  "features": ["recency", "history_segment", "history", "mens", "womens", "zip_code", "newbie", "channel"],
+  "feature_timing": "pre_treatment",
+  "outcomes": {"visit": "visit", "conversion": "conversion", "revenue": "spend"}
+}
