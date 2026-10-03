@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import json
 import shutil
 import subprocess
 import tempfile
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+from .provider import ApiProvider, request_json
 
 
 def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_path: Path | None = None,
@@ -48,11 +47,13 @@ def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_pa
     return hashlib.sha256(revised).hexdigest()
 
 
-def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_key: str,
+def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_key: str | None = None,
                               feature_gaps_path: Path | None = None,
-                              model: str = "deepseek-flash") -> str:
-    """Ask DeepSeek for one complete candidate revision using the frozen report."""
+                              model: str = "deepseek-flash",
+                              provider: ApiProvider | None = None) -> str:
+    """Ask a Chat Completions provider for a candidate revision."""
     candidate_path, report_path = Path(candidate_path), Path(report_path)
+    provider = provider or ApiProvider("https://api.deepseek.com", model, api_key or "")
     before = candidate_path.read_text()
     prompt = (
         "Return one JSON object with candidate_py (complete Python source) and "
@@ -66,26 +67,11 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
     )
     user_message = f"Candidate:\n{before}\n\nReport:\n{report_path.read_text()}"
     for attempt in range(2):
-        payload = json.dumps({
-            "model": model, "thinking": {"type": "enabled"},
-            "reasoning_effort": "high", "response_format": {"type": "json_object"},
-            "max_tokens": 16384,
-            "messages": [{"role": "system", "content": prompt},
-                         {"role": "user", "content": user_message}],
-        }).encode()
-        request = urllib.request.Request(
-            "https://api.deepseek.com/chat/completions", data=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                result = json.load(response)
-        except urllib.error.HTTPError as error:
-            raise RuntimeError(f"DeepSeek API returned HTTP {error.code}") from None
-        choice = result["choices"][0]
-        if choice["finish_reason"] != "stop":
-            raise RuntimeError(f"DeepSeek response incomplete: {choice['finish_reason']}")
-        try:
-            answer = json.loads(choice["message"]["content"])
+            answer = request_json(provider, provider.iteration_effort,
+                                  [{"role": "system", "content": prompt},
+                                   {"role": "user", "content": user_message}],
+                                  max_tokens=16384)
             revised = answer["candidate_py"].strip()
             if revised.startswith("```"):
                 revised = revised.split("\n", 1)[1].rsplit("```", 1)[0].strip()

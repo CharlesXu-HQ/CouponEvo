@@ -3,39 +3,30 @@
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+from .provider import ApiProvider, request_json
 
 
 FLAGS = ("uplift_anomaly", "feature_leakage", "cost_tradeoff_unclear")
 
 
-def _ask(api_key: str, model: str, effort: str, messages: list[dict]) -> dict:
-    payload = json.dumps({
-        "model": model, "thinking": {"type": "enabled"},
-        "reasoning_effort": effort, "response_format": {"type": "json_object"},
-        "max_tokens": 10000 if effort == "high" else 16000,
-        "messages": messages,
-    }).encode()
-    request = urllib.request.Request(
-        "https://api.deepseek.com/chat/completions", data=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=180) as response:
-            result = json.load(response)
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f"DeepSeek API returned HTTP {error.code}") from None
-    choice = result["choices"][0]
-    if choice["finish_reason"] != "stop":
-        raise RuntimeError(f"DeepSeek {effort} analysis incomplete: {choice['finish_reason']}")
-    answer = json.loads(choice["message"]["content"])
-    if not isinstance(answer.get("summary"), str) or not isinstance(answer.get("recommendation"), str):
-        raise ValueError("DeepSeek analysis needs a summary and recommendation")
-    for name in FLAGS:
-        if not isinstance(answer.get(name), dict) or not isinstance(answer[name].get("flag"), bool):
-            raise ValueError(f"DeepSeek analysis needs a boolean {name} flag")
-    return answer
+def _ask(provider: ApiProvider, effort: str, messages: list[dict]) -> dict:
+    for attempt in range(2):
+        try:
+            answer = request_json(provider, effort, messages,
+                                  max_tokens=10000 if effort == "high" else 16000)
+            if not isinstance(answer.get("summary"), str) or not isinstance(answer.get("recommendation"), str):
+                raise ValueError("Agent analysis needs a summary and recommendation")
+            for name in FLAGS:
+                if not isinstance(answer.get(name), dict) or not isinstance(answer[name].get("flag"), bool):
+                    raise ValueError(f"Agent analysis needs a boolean {name} flag")
+            return answer
+        except ValueError:
+            if attempt:
+                raise
+            messages = [*messages, {"role": "user", "content":
+                        "The previous response was invalid. Return exactly one complete JSON object with summary, recommendation, and all three flag/evidence objects."}]
 
 
 def _review_reasons(prior: dict, report: dict, high: dict) -> list[str]:
@@ -64,9 +55,11 @@ def _review_reasons(prior: dict, report: dict, high: dict) -> list[str]:
 
 
 def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path,
-                             output_dir: Path, api_key: str,
-                             model: str = "deepseek-flash") -> dict:
+                             output_dir: Path, api_key: str | None = None,
+                             model: str = "deepseek-flash",
+                             provider: ApiProvider | None = None) -> dict:
     """Run high analysis, then max review only when evidence warrants it."""
+    provider = provider or ApiProvider("https://api.deepseek.com", model, api_key or "")
     context = json.dumps({"before": prior, "after": revised}, ensure_ascii=False)
     candidate = Path(candidate_path).read_text()
     instruction = (
@@ -80,23 +73,26 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
     )
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": f"Reports:\n{context}\n\nCandidate code:\n{candidate}"}]
-    high = _ask(api_key, model, "high", messages)
+    high = _ask(provider, provider.iteration_effort, messages)
     reasons = _review_reasons(prior, revised, high)
     maximum = None
     if reasons:
-        maximum = _ask(api_key, model, "max", [
-            {"role": "system", "content": instruction + " Independently audit the high-effort analysis; confirm or refute each review trigger with evidence."},
+        maximum = _ask(provider, provider.review_effort, [
+            {"role": "system", "content": instruction + " Independently audit the first analysis; confirm or refute each review trigger with evidence."},
             {"role": "user", "content": f"Reports:\n{context}\n\nCandidate code:\n{candidate}\n\nHigh analysis:\n{json.dumps(high, ensure_ascii=False)}\n\nReview triggers: {', '.join(reasons)}"},
         ])
-    result = {"model": model, "run_id": revised["run_id"], "high": high,
+    result = {"model": provider.model, "provider_url": provider.url,
+              "initial_effort": provider.iteration_effort,
+              "review_effort": provider.review_effort if maximum else None,
+              "run_id": revised["run_id"], "high": high,
               "review_reasons": reasons, "max": maximum}
     output_dir = Path(output_dir)
-    lines = ["# Agent 报告分析", "", f"模型：{model}", "", "## high 初评", "",
+    lines = ["# Agent 报告分析", "", f"模型：{provider.model}", "", f"## {provider.iteration_effort} 初评", "",
              high["summary"], "", f"建议：{high['recommendation']}", ""]
     for name in FLAGS:
         flag = high[name]
         lines.append(f"- {name}：{'需复核' if flag['flag'] else '未发现'}；{flag.get('evidence', '')}")
-    lines.extend(["", "## max 复核", ""])
+    lines.extend(["", f"## {provider.review_effort} 复核", ""])
     if maximum:
         lines.extend([f"触发项：{', '.join(reasons)}", "", maximum["summary"], "",
                       f"建议：{maximum['recommendation']}", ""])

@@ -50,7 +50,7 @@ class AnalysisTests(unittest.TestCase):
                      "recommendation": "Keep for further validation"}
 
     def test_clear_report_uses_high_once(self):
-        with patch("coupon_lab.agent.urllib.request.urlopen", return_value=FakeResponse(self.high)) as call:
+        with patch("urllib.request.urlopen", return_value=FakeResponse(self.high)) as call:
             result = analyze_reports_deepseek(self.report, self.report,
                                               candidate_path=self.candidate,
                                               output_dir=self.root, api_key="test-key")
@@ -61,11 +61,26 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("Positive uplift", (self.root / "analysis.md").read_text())
         self.assertEqual(json.loads((self.root / "analysis.json").read_text())["model"], "deepseek-flash")
 
+    def test_high_analysis_repairs_malformed_json_once(self):
+        class BadResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": '{"summary":'}}]}).encode()
+
+        with patch("urllib.request.urlopen",
+                   side_effect=[BadResponse(self.high), FakeResponse(self.high)]) as call:
+            result = analyze_reports_deepseek(self.report, self.report,
+                                              candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(result["high"]["summary"], self.high["summary"])
+        self.assertIsNone(result["max"])
+
     def test_cost_uncertainty_triggers_max_review(self):
         revised = json.loads(json.dumps(self.report))
         revised["policies"]["net_margin"]["net"]["lower"] = -0.2
         responses = [FakeResponse(self.high), FakeResponse({**self.high, "summary": "Cost benefit remains uncertain"})]
-        with patch("coupon_lab.agent.urllib.request.urlopen", side_effect=responses) as call:
+        with patch("urllib.request.urlopen", side_effect=responses) as call:
             result = analyze_reports_deepseek(self.report, revised,
                                               candidate_path=self.candidate,
                                               output_dir=self.root, api_key="test-key")
@@ -77,7 +92,7 @@ class AnalysisTests(unittest.TestCase):
     def test_uplift_below_random_triggers_max_review(self):
         revised = json.loads(json.dumps(self.report))
         revised["policies"]["active"]["effects"]["active"]["mean"] = -0.1
-        with patch("coupon_lab.agent.urllib.request.urlopen",
+        with patch("urllib.request.urlopen",
                    side_effect=[FakeResponse(self.high), FakeResponse(self.high)]) as call:
             result = analyze_reports_deepseek(self.report, revised,
                                               candidate_path=self.candidate,
@@ -88,7 +103,7 @@ class AnalysisTests(unittest.TestCase):
     def test_random_baseline_drift_triggers_max_review(self):
         revised = json.loads(json.dumps(self.report))
         revised["policies"]["random"]["effects"]["active"]["mean"] = 0.06
-        with patch("coupon_lab.agent.urllib.request.urlopen",
+        with patch("urllib.request.urlopen",
                    side_effect=[FakeResponse(self.high), FakeResponse(self.high)]) as call:
             result = analyze_reports_deepseek(self.report, revised,
                                               candidate_path=self.candidate,
@@ -99,7 +114,7 @@ class AnalysisTests(unittest.TestCase):
     def test_suspected_leakage_triggers_max_review(self):
         high = json.loads(json.dumps(self.high))
         high["feature_leakage"] = {"flag": True, "evidence": "feature timing unverified"}
-        with patch("coupon_lab.agent.urllib.request.urlopen",
+        with patch("urllib.request.urlopen",
                    side_effect=[FakeResponse(high), FakeResponse(self.high)]) as call:
             result = analyze_reports_deepseek(self.report, self.report,
                                               candidate_path=self.candidate,

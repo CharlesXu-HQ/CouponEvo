@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from .agent import revise_candidate, revise_candidate_deepseek
 from .analysis import analyze_reports_deepseek
 from .data import load_dataset, split_dataset
 from .evaluate import Budget, estimate_cost, evaluate_policy, select_policy
+from .provider import ApiProvider
 
 
 def _sha(data: bytes) -> str:
@@ -62,7 +64,10 @@ def _render(report: dict) -> str:
              "## 策略结果", ""]
     if report.get("agent"):
         agent = report["agent"]
-        lines[2:2] = [f"Agent：{agent['provider']} / {agent['model']}；前一轮：`{agent['previous_run_id']}`", ""]
+        detail = f"Agent：{agent['provider']} / {agent['model']}；前一轮：`{agent['previous_run_id']}`"
+        if "iteration_effort" in agent:
+            detail += f"；迭代：{agent['iteration_effort']}；复核：{agent['review_effort']}"
+        lines[2:2] = [detail, ""]
     for name, result in report["policies"].items():
         lines.append(f"### {name}")
         lines.append(f"选中 {result['selected_count']} / {report['holdout_size']} 个单位。")
@@ -229,14 +234,45 @@ def main() -> None:
     parser.add_argument("--candidate", type=Path, default=Path(__file__).with_name("candidate.py"))
     parser.add_argument("--final", action="store_true", help="evaluate the final test split")
     parser.add_argument("--feature-gaps", type=Path, help="existing human or Agent feature suggestions")
-    parser.add_argument("--agent-provider", choices=["codex", "deepseek"], default="codex")
+    parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
+    parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
+    parser.add_argument("--agent-provider-url", help="API base URL or full chat/completions endpoint")
+    parser.add_argument("--agent-api-key-env", help="environment variable holding the API key")
     parser.add_argument("--agent-model", help="Agent model override; DeepSeek defaults to deepseek-flash")
     args = parser.parse_args()
     if args.command == "agent" and args.final:
         parser.error("agent revisions must use validation; run --final separately after selection")
-    api_key = os.environ.pop("DEEPSEEK_API_KEY", None) if args.command == "agent" and args.agent_provider == "deepseek" else None
-    if args.command == "agent" and args.agent_provider == "deepseek" and not api_key:
-        parser.error("DEEPSEEK_API_KEY is required for the DeepSeek agent")
+    api_mode = args.command == "agent" and (args.agent_provider != "codex" or
+                                               args.agent_config is not None or args.agent_provider_url is not None)
+    provider_name = ("api" if args.agent_provider == "codex" and api_mode else args.agent_provider)
+    api_provider = None
+    if api_mode:
+        config = json.loads(args.agent_config.read_text()) if args.agent_config else {}
+        if not isinstance(config, dict):
+            parser.error("agent configuration must be a JSON object")
+        extra = set(config) - {"provider_url", "model", "api_key_env", "thinking",
+                               "iteration_effort", "review_effort"}
+        if extra:
+            parser.error(f"unknown agent configuration fields: {', '.join(sorted(extra))}")
+        url = args.agent_provider_url or config.get("provider_url") or (
+            "https://api.deepseek.com" if provider_name == "deepseek" else None)
+        model = args.agent_model or config.get("model") or (
+            "deepseek-flash" if provider_name == "deepseek" else None)
+        key_env = args.agent_api_key_env or config.get("api_key_env") or (
+            "DEEPSEEK_API_KEY" if provider_name == "deepseek" else "AGENT_API_KEY")
+        if not url or not model:
+            parser.error("API agent needs provider_url and model")
+        api_key = os.environ.pop(key_env, None)
+        if not api_key:
+            parser.error(f"{key_env} is required for the API agent")
+        try:
+            api_provider = ApiProvider(url, model, api_key,
+                                       thinking=config.get("thinking", "enabled" if provider_name == "deepseek" or
+                                                           urlsplit(url).hostname == "api.deepseek.com" else "omit"),
+                                       iteration_effort=config.get("iteration_effort", "high"),
+                                       review_effort=config.get("review_effort", "max"))
+        except ValueError as error:
+            parser.error(str(error))
     budget = Budget(args.budget_kind, args.budget)
     original_candidate = args.candidate.read_bytes() if args.command == "agent" else None
     try:
@@ -246,17 +282,21 @@ def main() -> None:
             args.feature_gaps = args.output / "agent-feature-gaps.md"
             args.feature_gaps.unlink(missing_ok=True)
             prior_report = args.output / prior["run_id"] / "report.md"
-            model = args.agent_model or ("deepseek-flash" if args.agent_provider == "deepseek" else "default")
-            if args.agent_provider == "deepseek":
-                revise_candidate_deepseek(args.candidate, prior_report, api_key=api_key,
-                                          feature_gaps_path=args.feature_gaps, model=model)
+            model = api_provider.model if api_mode else args.agent_model or "default"
+            if api_mode:
+                revise_candidate_deepseek(args.candidate, prior_report,
+                                          feature_gaps_path=args.feature_gaps, provider=api_provider)
             else:
                 revise_candidate(args.candidate, prior_report,
                                  feature_gaps_path=args.feature_gaps, model=args.agent_model)
             if not args.feature_gaps.exists():
                 args.feature_gaps = None
-            agent_info = {"provider": args.agent_provider, "model": model,
+            agent_info = {"provider": provider_name, "model": model,
                           "previous_run_id": prior["run_id"]}
+            if api_mode:
+                agent_info.update({"provider_url": api_provider.url,
+                                   "iteration_effort": api_provider.iteration_effort,
+                                   "review_effort": api_provider.review_effort})
         else:
             agent_info = None
         report = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
@@ -264,11 +304,10 @@ def main() -> None:
                                 feature_gaps=args.feature_gaps, agent_info=agent_info)
         if args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"]:
             raise ValueError("Agent revision left predictions unchanged")
-        if args.command == "agent" and args.agent_provider == "deepseek":
+        if api_mode:
             analyze_reports_deepseek(prior, report, candidate_path=args.candidate,
                                      output_dir=args.output / report["run_id"],
-                                     api_key=api_key, model=model)
-            api_key = None
+                                     provider=api_provider)
     except Exception:
         if original_candidate is not None:
             args.candidate.write_bytes(original_candidate)

@@ -1,0 +1,8 @@
+{
+  "provider_url": "https://api.deepseek.com",
+  "model": "deepseek-flash",
+  "api_key_env": "AGENT_API_KEY",
+  "thinking": "enabled",
+  "iteration_effort": "high",
+  "review_effort": "max"
+}

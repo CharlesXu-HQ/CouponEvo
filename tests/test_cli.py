@@ -163,7 +163,7 @@ class RunTests(unittest.TestCase):
             def read(self):
                 return json.dumps(payload).encode()
 
-        with patch("coupon_lab.agent.urllib.request.urlopen", return_value=FakeResponse()) as call:
+        with patch("urllib.request.urlopen", return_value=FakeResponse()) as call:
             revise_candidate_deepseek(candidate, report, api_key="test-key",
                                       feature_gaps_path=self.root / "feature_gaps.md")
         self.assertIn("return 1", candidate.read_text())
@@ -196,7 +196,7 @@ class RunTests(unittest.TestCase):
 
         responses = [FakeResponse("def fit_predict(:"),
                      FakeResponse("def fit_predict(*args, **kwargs):\n    return 1\n")]
-        with patch("coupon_lab.agent.urllib.request.urlopen", side_effect=responses) as call:
+        with patch("urllib.request.urlopen", side_effect=responses) as call:
             revise_candidate_deepseek(candidate, report, api_key="test-key")
         self.assertEqual(call.call_count, 2)
         self.assertIn("return 1", candidate.read_text())
@@ -240,8 +240,68 @@ class RunTests(unittest.TestCase):
         self.assertEqual(analyze.call_count, 1)
         prior, revised = analyze.call_args.args
         self.assertNotEqual(prior["prediction_sha256"], revised["prediction_sha256"])
-        self.assertEqual(analyze.call_args.kwargs["api_key"], "test-key")
+        self.assertEqual(analyze.call_args.kwargs["provider"].api_key, "test-key")
         self.assertEqual(analyze.call_args.kwargs["output_dir"], self.root / "runs" / revised["run_id"])
+
+    def test_provider_config_routes_model_and_secret_to_both_agent_steps(self):
+        candidate = self.root / "candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate.write_bytes(source.read_bytes())
+        config = self.root / "agent.json"
+        config.write_text(json.dumps({
+            "provider_url": "https://proxy.example/v1", "model": "flash-proxy",
+            "api_key_env": "TEST_AGENT_KEY", "thinking": "enabled",
+            "iteration_effort": "high", "review_effort": "max",
+        }))
+
+        def fake_revision(path, *_args, **_kwargs):
+            path.write_text(path.read_text().replace(
+                'result[f"{name}_uplift"] = treated - control',
+                'result[f"{name}_uplift"] = treated - control + 0.1'))
+
+        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+                "--budget", "0.2", "--candidate", str(candidate), "--output",
+                str(self.root / "runs"), "--agent-config", str(config)]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"TEST_AGENT_KEY": "test-key"}), \
+                patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
+                patch("coupon_lab.cli.analyze_reports_deepseek") as analyze:
+            main()
+            self.assertNotIn("TEST_AGENT_KEY", os.environ)
+        revision_provider = revise.call_args.kwargs["provider"]
+        analysis_provider = analyze.call_args.kwargs["provider"]
+        self.assertIs(revision_provider, analysis_provider)
+        self.assertEqual(revision_provider.url, "https://proxy.example/v1")
+        self.assertEqual(revision_provider.model, "flash-proxy")
+        self.assertEqual(revision_provider.api_key, "test-key")
+        self.assertEqual(revision_provider.iteration_effort, "high")
+        self.assertEqual(revision_provider.review_effort, "max")
+        revised = analyze.call_args.args[1]
+        artifact = self.root / "runs" / revised["run_id"]
+        self.assertEqual(revised["agent"]["provider"], "api")
+        self.assertNotIn("test-key", (artifact / "report.json").read_text())
+
+    def test_direct_deepseek_url_enables_thinking(self):
+        candidate = self.root / "candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate.write_bytes(source.read_bytes())
+
+        def fake_revision(path, *_args, **_kwargs):
+            path.write_text(path.read_text().replace(
+                'result[f"{name}_uplift"] = treated - control',
+                'result[f"{name}_uplift"] = treated - control + 0.1'))
+
+        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+                "--budget", "0.2", "--candidate", str(candidate), "--output",
+                str(self.root / "runs"), "--agent-provider-url", "https://api.deepseek.com",
+                "--agent-model", "deepseek-flash"]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"AGENT_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
+                patch("coupon_lab.cli.analyze_reports_deepseek"):
+            main()
+        provider = revise.call_args.kwargs["provider"]
+        self.assertEqual(provider.thinking, "enabled")
+        self.assertEqual(provider.iteration_effort, "high")
+        self.assertEqual(provider.review_effort, "max")
 
 
 if __name__ == "__main__":

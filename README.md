@@ -32,6 +32,15 @@ python -m coupon_lab.cli agent examples/demo.json --budget-kind cost --budget 0.
 
 Agent 会修改传入的候选文件。DeepSeek 的代码迭代和新报告解读使用 `high` 推理档位；若解读发现疑似特征泄漏，或评测器发现 uplift 低于随机策略、随机基线跨轮漂移、净收益区间跨零、促活与收益策略互有取舍等情况，会追加一次 `max` 复核。两轮结论与触发原因分别保存在 `runs/<run_id>/analysis.json` 和 `analysis.md`；评测指标仍以 `report.json` 为准，Agent 对代码或因果解释的判断需人工核查。报告记录 Agent 提供方、模型、前一轮运行 ID 和预测 SHA-256。若候选代码变化但验证集预测完全相同，本轮会报错并恢复候选文件。密钥从环境变量读取，不写入报告或候选代码。
 
+可用[配置示例](examples/agent.deepseek.json)指定 OpenAI 兼容 Chat Completions 的 provider URL、模型、密钥环境变量及推理档位。设置 `AGENT_API_KEY` 后执行：
+
+```bash
+python -m coupon_lab.cli agent examples/demo.json --budget-kind cost --budget 0.25 \
+  --candidate runs/my-candidate.py --agent-config examples/agent.deepseek.json
+```
+
+也可直接传 `--agent-provider-url URL --agent-model MODEL`，并在 `AGENT_API_KEY` 中提供密钥；完整 `/chat/completions` URL 和 API base URL 均可。使用 `api.deepseek.com` 时默认显式发送 `thinking: enabled`；配置中的 `thinking: "enabled"` 可用于代理 DeepSeek 的其他 URL。其他兼容端点可设为 `"omit"`，仍会发送 `reasoning_effort`。端点需支持 Chat Completions、JSON 输出及所选推理档位；若请求被拒绝，程序会报错，不会主动降级到关闭思考模式。API key 不放入配置文件或命令行。
+
 这个命令先生成报告，再让 Agent 读取候选代码和报告、修改 `candidate.py`，检查语法后重新实验。Codex 使用临时工作目录；DeepSeek API 只接收候选代码和报告。若发现缺少关键的干预前用户特征，Agent 可另写 `feature_gaps.md`，记录建议字段、来源、时点、证据、泄漏风险和下一版验证方法；该文件会进入新一轮报告，当前固定 dataset 不变。自动修改可能产生性能更差的候选；各轮报告和代码快照可供比较。
 
 ## Dataset manifest
