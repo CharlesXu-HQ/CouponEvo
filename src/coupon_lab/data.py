@@ -24,6 +24,7 @@ class Dataset:
     dataset_path: Path
     source_sha256: str
     has_unit_id: bool
+    validation: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,7 @@ class Split:
     test: pd.DataFrame
 
 
-def load_dataset(manifest_path: Path) -> Dataset:
+def load_dataset(manifest_path: Path, *, strict: bool = False) -> Dataset:
     manifest_path = Path(manifest_path)
     manifest = json.loads(manifest_path.read_text())
     dataset_path = (manifest_path.parent / manifest["dataset"]).resolve()
@@ -89,6 +90,12 @@ def load_dataset(manifest_path: Path) -> Dataset:
     else:
         frame["__unit_id"] = frame.index
     probability = treatment.get("probability")
+    probability_source = treatment.get("probability_source")
+    probability_reference = treatment.get("probability_reference")
+    if not isinstance(probability_source, str) or probability_source not in {"protocol", "assignment_log", "empirical"} or not isinstance(probability_reference, str) or not probability_reference.strip():
+        raise ValueError("treatment needs probability_source and probability_reference")
+    if (probability == "empirical") != (probability_source == "empirical"):
+        raise ValueError("empirical probability requires empirical probability_source")
     if probability == "empirical":
         if not (treatment.get("simple_randomized") and treatment.get("sampling_preserves_arms")):
             raise ValueError("empirical probability requires simple_randomized and sampling_preserves_arms assertions")
@@ -104,8 +111,31 @@ def load_dataset(manifest_path: Path) -> Dataset:
     if fixed_cost is not None and (not isinstance(fixed_cost, (int, float)) or
                                    not np.isfinite(fixed_cost) or fixed_cost < 0):
         raise ValueError("fixed_send_cost must be finite and nonnegative")
+    assignment_time = manifest.get("assignment_time_column")
+    feature_times = manifest.get("feature_time_columns")
+    if strict and not assignment_time:
+        raise ValueError("strict data validation needs assignment_time_column")
+    if strict and not feature_times:
+        raise ValueError("strict data validation needs feature_time_columns for every feature")
+    if assignment_time or feature_times:
+        if not assignment_time or not isinstance(feature_times, dict) or set(feature_times) != set(features):
+            raise ValueError("assignment_time_column and feature_time_columns for every feature are required together")
+        timing_columns = {assignment_time, *feature_times.values()}
+        if timing_columns - set(frame):
+            raise ValueError(f"missing timing columns: {sorted(timing_columns - set(frame))}")
+        assignment = pd.to_datetime(frame[assignment_time], errors="coerce", utc=True)
+        if assignment.isna().any():
+            raise ValueError("assignment time must be present and parseable")
+        for feature, column in feature_times.items():
+            recorded = pd.to_datetime(frame[column], errors="coerce", utc=True)
+            if recorded.isna().any():
+                raise ValueError(f"feature time for {feature} must be present and parseable")
+            if (recorded >= assignment).any():
+                raise ValueError(f"feature {feature} was recorded at or after assignment")
+    validation = {"feature_timing": "checked" if assignment_time else "declared_only",
+                  "assignment_probability": "documented"}
     return Dataset(frame.reset_index(drop=True), list(features), dict(outcomes), float(probability),
-                   manifest, dataset_path, hashlib.sha256(raw).hexdigest(), bool(unit_col))
+                   manifest, dataset_path, hashlib.sha256(raw).hexdigest(), bool(unit_col), validation)
 
 
 def split_dataset(dataset: Dataset, seed: int) -> Split:

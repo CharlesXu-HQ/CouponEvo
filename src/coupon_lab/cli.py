@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import random
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -17,7 +18,7 @@ import torch
 from .agent import revise_candidate, revise_candidate_deepseek
 from .analysis import analyze_reports_deepseek
 from .data import load_dataset, split_dataset
-from .evaluate import Budget, compare_policies, estimate_cost, evaluate_policy, select_policy
+from .evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
 from .provider import ApiProvider
 
 
@@ -25,13 +26,17 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _candidate_function(path: Path):
+def _candidate_module(path: Path):
     spec = importlib.util.spec_from_file_location("uplift_candidate", path)
     if spec is None or spec.loader is None:
         raise ValueError(f"cannot import candidate: {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.fit_predict
+    return module
+
+
+def _candidate_function(path: Path):
+    return _candidate_module(path).fit_predict
 
 
 def _predict(path: Path, train: pd.DataFrame, target: pd.DataFrame,
@@ -63,7 +68,8 @@ def _split_sha(parts) -> str:
 
 
 def _candidate_policies(predictions: pd.DataFrame, data, budget: Budget,
-                        primary: str, money: str | None) -> tuple[dict[str, np.ndarray], np.ndarray | None]:
+                        primary: str, money: str | None, candidate_path: Path,
+                        seed: int) -> tuple[dict[str, np.ndarray], np.ndarray | None]:
     cost_col = data.outcomes.get("coupon_cost")
     if cost_col:
         expected_cost = predictions["expected_cost"].to_numpy(dtype=float)
@@ -73,6 +79,8 @@ def _candidate_policies(predictions: pd.DataFrame, data, budget: Budget,
         expected_cost = None
     if budget.kind == "cost" and expected_cost is None:
         raise ValueError("cost budget needs observed coupon_cost or fixed_send_cost")
+    if expected_cost is not None and (not np.isfinite(expected_cost).all() or (expected_cost < 0).any()):
+        raise ValueError("candidate expected_cost must be finite and nonnegative")
     scores = {primary: predictions[f"{primary}_uplift"].to_numpy(dtype=float)}
     if money:
         label = ("net_margin" if money == "gross_margin" else "net_revenue") if expected_cost is not None else money
@@ -80,7 +88,61 @@ def _candidate_policies(predictions: pd.DataFrame, data, budget: Budget,
         if expected_cost is not None and not (money == "gross_margin" and data.manifest.get("margin_includes_coupon_cost")):
             score = score - expected_cost
         scores[label] = score
-    return {name: select_policy(score, expected_cost, budget) for name, score in scores.items()}, expected_cost
+    chooser = getattr(_candidate_module(candidate_path), "choose_policy", None)
+    policies = {}
+    for name, score in scores.items():
+        if chooser:
+            numpy_state, python_state = np.random.get_state(), random.getstate()
+            devices = [torch.cuda.current_device()] if torch.cuda.is_available() else []
+            try:
+                np.random.seed(seed)
+                random.seed(seed)
+                with torch.random.fork_rng(devices=devices):
+                    torch.manual_seed(seed)
+                    raw = chooser(score.copy(), None if expected_cost is None else expected_cost.copy(),
+                                  budget.kind, budget.value)
+            finally:
+                np.random.set_state(numpy_state)
+                random.setstate(python_state)
+        else:
+            raw = select_policy(score, expected_cost, budget)
+        policy = np.asarray(raw)
+        if policy.dtype != bool or policy.shape != (len(score),):
+            raise ValueError("candidate policy must be a boolean vector for every holdout unit")
+        if budget.kind == "count" and policy.sum() > int(np.floor(len(policy) * budget.value)):
+            raise ValueError("candidate policy exceeds count budget")
+        if budget.kind == "cost" and float((policy * expected_cost).sum()) > len(policy) * budget.value + 1e-9:
+            raise ValueError("candidate policy exceeds predicted cost budget")
+        policies[name] = policy
+    return policies, expected_cost
+
+
+def _policy_shas(policies: dict[str, np.ndarray]) -> dict[str, str]:
+    return {name: _sha(np.asarray(policy, dtype=np.uint8).tobytes()) for name, policy in policies.items()}
+
+
+def _paired_metrics(target: pd.DataFrame, new: np.ndarray, old: np.ndarray, data,
+                    outcome_cols: dict[str, str], primary: str, money: str | None,
+                    expected_cost: np.ndarray | None, estimate=compare_policies) -> dict:
+    metrics = {primary: estimate(target, new, old, outcome_cols[primary], data.propensity).to_dict()}
+    cost_col = data.outcomes.get("coupon_cost")
+    if money and (money != primary or expected_cost is not None):
+        if cost_col:
+            net_frame = target.copy()
+            net_frame["__net"] = net_frame[outcome_cols[money]]
+            if money == "revenue" or not data.manifest.get("margin_includes_coupon_cost"):
+                net_frame["__net"] -= net_frame[cost_col]
+            metrics["net"] = estimate(net_frame, new, old, "__net", data.propensity).to_dict()
+        elif expected_cost is not None:
+            effect = estimate(target, new, old, outcome_cols[money], data.propensity).to_dict()
+            if money == "revenue" or not data.manifest.get("margin_includes_coupon_cost"):
+                assumed = data.manifest["fixed_send_cost"] * float((new.astype(int) - old.astype(int)).mean())
+                for key in ("mean", "lower", "upper"):
+                    effect[key] -= assumed
+            metrics["net"] = effect
+        else:
+            metrics[money] = estimate(target, new, old, outcome_cols[money], data.propensity).to_dict()
+    return metrics
 
 
 def _render(report: dict) -> str:
@@ -114,13 +176,31 @@ def _render(report: dict) -> str:
             lines.append("- 相对随机发券的点估计差值/单位：" +
                          "；".join(f"{key} {value:.6g}" for key, value in result["delta_vs_random"].items()))
         lines.append("")
+    lines.extend(["## Uplift 排序诊断", "", "Qini/AUUC 只描述当前留出集的排序，不作为预算策略效果。", ""])
+    for name, values in report["ranking_diagnostics"].items():
+        lines.append(f"- {name}：AUUC {values['auuc']:.6g}；Qini {values['qini']:.6g}")
+    lines.append("")
     if "paired_vs_baseline" in report:
         lines.extend(["## 新旧策略配对差值", "", "同一留出集、同一用户；正值表示当前候选策略更好。", ""])
         for name, metrics in report["paired_vs_baseline"].items():
             for metric, estimate in metrics.items():
                 lines.append(f"- {name} / {metric}：{estimate['mean']:.6g}（95% 区间 {estimate['lower']:.6g} 至 {estimate['upper']:.6g}）")
         lines.append("")
+    lines.extend(["## 相对随机策略的配对差值", "", "同一留出集、同一用户；正值表示当前候选策略更好。", ""])
+    for name, metrics in report["paired_vs_random"].items():
+        for metric, estimate in metrics.items():
+            lines.append(f"- {name} / {metric}：{estimate['mean']:.6g}（95% 区间 {estimate['lower']:.6g} 至 {estimate['upper']:.6g}）")
+    lines.append("")
+    for field, title in (("paired_vs_baseline_bootstrap", "新旧策略配对 bootstrap 区间"),
+                         ("paired_vs_random_bootstrap", "相对随机策略配对 bootstrap 区间")):
+        if field in report:
+            lines.extend([f"## {title}", ""])
+            for name, metrics in report[field].items():
+                for metric, estimate in metrics.items():
+                    lines.append(f"- {name} / {metric}：{estimate['mean']:.6g}（95% 区间 {estimate['lower']:.6g} 至 {estimate['upper']:.6g}）")
+            lines.append("")
     lines.extend(["## 数据与特征缺口", "", report.get("feature_gaps") or "当前轮未提出新字段。Agent 可根据指标、可用特征和干预前时点在下一轮补充建议。", "",
+                  "## 数据证据", "", f"特征时点：{report['data_validation']['feature_timing']}；分组概率：{report['data_validation']['assignment_probability']}", "",
                   "## 口径与限制", "", *[f"- {note}" for note in report["notes"]], ""])
     return "\n".join(lines)
 
@@ -128,14 +208,17 @@ def _render(report: dict) -> str:
 def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                    candidate_path: Path | None = None, final: bool = False,
                    feature_gaps: Path | None = None, agent_info: dict | None = None,
-                   device: str = "cpu", compare_candidate_path: Path | None = None) -> dict:
+                   device: str = "cpu", compare_candidate_path: Path | None = None,
+                   strict_data: bool = False, bootstrap_reps: int = 0) -> dict:
+    if bootstrap_reps and (not final or bootstrap_reps < 2):
+        raise ValueError("bootstrap intervals require --final and at least two resamples")
     manifest_path, output = Path(manifest_path), Path(output)
     candidate_path = Path(candidate_path or Path(__file__).with_name("candidate.py"))
     manifest_bytes, candidate_bytes = manifest_path.read_bytes(), candidate_path.read_bytes()
     compare_candidate_path = Path(compare_candidate_path) if compare_candidate_path else None
     compare_bytes = compare_candidate_path.read_bytes() if compare_candidate_path else None
     gap_bytes = Path(feature_gaps).read_bytes() if feature_gaps is not None else None
-    data = load_dataset(manifest_path)
+    data = load_dataset(manifest_path, strict=strict_data)
     parts = split_dataset(data, seed)
     target = parts.test if final else parts.validation
     outcome_cols = {name: column for name, column in data.outcomes.items() if name != "coupon_cost"}
@@ -153,11 +236,15 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
     if device == "cuda" and predictions.attrs.get("model_device") != "cuda":
         raise ValueError("candidate did not confirm CUDA model training and prediction")
     prediction_sha = _sha(predictions[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
+    ranking = {name: ranking_diagnostic(target, predictions[f"{name}_uplift"].to_numpy(),
+                                        column, data.propensity)
+               for name, column in outcome_cols.items()}
     primary = next((name for name in ("active", "visit", "click", "conversion") if name in outcome_cols), None)
     if primary is None:
         primary = next(iter(outcome_cols))
     money = "gross_margin" if "gross_margin" in outcome_cols else "revenue" if "revenue" in outcome_cols else None
-    policies, expected_cost = _candidate_policies(predictions, data, budget, primary, money)
+    policies, expected_cost = _candidate_policies(predictions, data, budget, primary, money,
+                                                   candidate_path, seed)
     policies["random"] = _random_policy(len(target), expected_cost, budget, seed)
     results = {}
     for name, policy in policies.items():
@@ -199,43 +286,40 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
             key: (entry["net"]["mean"] - random_result["net"]["mean"] if key == "net" else
                   entry["effects"][key]["mean"] - random_result["effects"][key]["mean"])
             for key in keys}
+    paired_random = {name: _paired_metrics(target, policy, policies["random"], data,
+                                            outcome_cols, primary, money, expected_cost)
+                     for name, policy in policies.items() if name != "random"}
     paired = None
+    baseline_prediction_sha = None
     if compare_candidate_path:
         baseline = _predict(compare_candidate_path, parts.train, target[data.features], candidate_args, seed, device)
         if not isinstance(baseline, pd.DataFrame) or not expected_columns <= set(baseline) or len(baseline) != len(target):
             raise ValueError("comparison candidate returned invalid predictions")
         if device == "cuda" and baseline.attrs.get("model_device") != "cuda":
             raise ValueError("comparison candidate did not confirm CUDA training and prediction")
-        old_policies, _ = _candidate_policies(baseline, data, budget, primary, money)
+        baseline_prediction_sha = _sha(baseline[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
+        old_policies, _ = _candidate_policies(baseline, data, budget, primary, money,
+                                              compare_candidate_path, seed)
         paired = {}
         for name, policy in policies.items():
             if name == "random" or name not in old_policies:
                 continue
             old = old_policies[name]
-            metrics = {primary: compare_policies(target, policy, old, outcome_cols[primary], data.propensity).to_dict()}
-            if money and (money != primary or expected_cost is not None):
-                if cost_col:
-                    net_frame = target.copy()
-                    net_frame["__net"] = net_frame[outcome_cols[money]]
-                    if money == "revenue" or not data.manifest.get("margin_includes_coupon_cost"):
-                        net_frame["__net"] -= net_frame[cost_col]
-                    metrics["net"] = compare_policies(net_frame, policy, old, "__net", data.propensity).to_dict()
-                elif expected_cost is not None:
-                    effect = compare_policies(target, policy, old, outcome_cols[money], data.propensity).to_dict()
-                    if money == "revenue" or not data.manifest.get("margin_includes_coupon_cost"):
-                        assumed = data.manifest["fixed_send_cost"] * float((policy.astype(int) - old.astype(int)).mean())
-                        for key in ("mean", "lower", "upper"):
-                            effect[key] -= assumed
-                    metrics["net"] = effect
-                else:
-                    metrics[money] = compare_policies(target, policy, old, outcome_cols[money], data.propensity).to_dict()
-            paired[name] = metrics
+            paired[name] = _paired_metrics(target, policy, old, data, outcome_cols, primary,
+                                           money, expected_cost)
     unavailable = []
     if "active" not in outcome_cols:
         unavailable.append("active")
     if "gross_margin" not in outcome_cols or not cost_col:
         unavailable.append("net_margin")
     notes = []
+    if data.validation["feature_timing"] != "checked":
+        notes.append("特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。")
+    else:
+        notes.append("特征记录时间早于分组时间已逐行检查；特征来源和计算口径仍需人工审计。")
+    notes.append("随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。")
+    if not final:
+        notes.append("验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。")
     if not data.has_unit_id:
         notes.append("无用户 ID；按行切分，无法排除同一用户跨切分。")
     if data.manifest["treatment"]["probability"] == "empirical":
@@ -253,29 +337,56 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         notes.append("发券选择使用预测成本；报告中的观测成本及区间可能超过预算。")
     if paired is not None:
         notes.append("配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。")
+    if bootstrap_reps:
+        notes.append(f"最终留出集的配对差值另用 {bootstrap_reps} 次用户级有放回抽样计算百分位区间。")
+    framework_sha = _sha(b"".join(Path(__file__).with_name(name).read_bytes()
+                              for name in ("cli.py", "data.py", "evaluate.py")))
     identity = {"dataset": data.source_sha256, "manifest": _sha(manifest_bytes),
+                "framework": framework_sha,
                 "candidate": _sha(candidate_bytes), "split": _split_sha(parts),
+                "prediction": prediction_sha, "policy": _policy_shas(policies),
                 "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed, "final": final,
-                "model_device": device,
+                "model_device": device, "strict_data": strict_data, "bootstrap_reps": bootstrap_reps,
                 "feature_gaps": _sha(gap_bytes) if gap_bytes is not None else None}
     if compare_bytes is not None:
         identity["compare_candidate"] = _sha(compare_bytes)
+        identity["compare_prediction"] = baseline_prediction_sha
+        identity["compare_policy"] = _policy_shas(old_policies)
     if agent_info is not None:
         identity["agent"] = agent_info
     run_id = _sha(json.dumps(identity, sort_keys=True).encode())[:16]
     report = {"run_id": run_id, "dataset_sha256": data.source_sha256,
+              "framework_sha256": framework_sha,
               "manifest_sha256": identity["manifest"], "candidate_sha256": identity["candidate"],
               "prediction_sha256": prediction_sha,
               "split_sha256": identity["split"], "budget": identity["budget"], "seed": seed,
               "model_device": device,
               "holdout": "test" if final else "validation", "holdout_size": len(target),
               "features": data.features, "outcome_columns": data.outcomes,
+              "data_validation": data.validation,
               "available_outcomes": list(outcome_cols), "unavailable_objectives": unavailable,
-              "policies": results, "notes": notes,
+              "policies": results, "ranking_diagnostics": ranking,
+              "policy_sha256": _policy_shas(policies),
+              "paired_vs_random": paired_random, "notes": notes,
               "feature_gaps": gap_bytes.decode("utf-8") if gap_bytes is not None else None}
     if paired is not None:
         report["compare_candidate_sha256"] = identity["compare_candidate"]
+        report["compare_prediction_sha256"] = baseline_prediction_sha
         report["paired_vs_baseline"] = paired
+        report["baseline_policy_sha256"] = _policy_shas(old_policies)
+    if bootstrap_reps:
+        def bootstrap(frame, new, old, outcome, propensity):
+            return bootstrap_policy_difference(frame, new, old, outcome, propensity,
+                                               reps=bootstrap_reps, seed=seed)
+        report["paired_vs_random_bootstrap"] = {
+            name: _paired_metrics(target, policy, policies["random"], data,
+                                  outcome_cols, primary, money, expected_cost, estimate=bootstrap)
+            for name, policy in policies.items() if name != "random"}
+        if paired is not None:
+            report["paired_vs_baseline_bootstrap"] = {
+                name: _paired_metrics(target, policy, old_policies[name], data,
+                                      outcome_cols, primary, money, expected_cost, estimate=bootstrap)
+                for name, policy in policies.items() if name != "random" and name in old_policies}
     if agent_info is not None:
         report["agent"] = agent_info
     if (_sha(data.dataset_path.read_bytes()) != data.source_sha256 or
@@ -286,6 +397,9 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         raise RuntimeError("dataset, manifest, candidate, or feature notes changed during the run")
     directory = output / run_id
     directory.mkdir(parents=True, exist_ok=True)
+    split_manifest = {name: sorted(map(int, frame.index)) for name, frame in
+                      (("train", parts.train), ("validation", parts.validation), ("test", parts.test))}
+    (directory / "split_manifest.json").write_text(json.dumps(split_manifest, separators=(",", ":")) + "\n")
     (directory / "candidate.py").write_bytes(candidate_bytes)
     if compare_bytes is not None:
         (directory / "baseline_candidate.py").write_bytes(compare_bytes)
@@ -308,6 +422,8 @@ def main() -> None:
     parser.add_argument("--compare-candidate", type=Path, help="frozen baseline candidate for paired policy differences")
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="model training and prediction device")
     parser.add_argument("--final", action="store_true", help="evaluate the final test split")
+    parser.add_argument("--strict-data", action="store_true", help="require checked pre-assignment feature times")
+    parser.add_argument("--bootstrap-reps", type=int, default=0, help="paired bootstrap interval on final holdout")
     parser.add_argument("--feature-gaps", type=Path, help="existing human or Agent feature suggestions")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
     parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
@@ -353,7 +469,8 @@ def main() -> None:
     try:
         if args.command == "agent":
             prior = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
-                                   candidate_path=args.candidate, device=args.device)
+                                   candidate_path=args.candidate, device=args.device,
+                                   strict_data=args.strict_data)
             args.feature_gaps = args.output / "agent-feature-gaps.md"
             args.feature_gaps.unlink(missing_ok=True)
             prior_report = args.output / prior["run_id"] / "report.md"
@@ -377,11 +494,13 @@ def main() -> None:
         report = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
                                 candidate_path=args.candidate, final=args.final,
                                 feature_gaps=args.feature_gaps, agent_info=agent_info,
-                                device=args.device,
+                                device=args.device, strict_data=args.strict_data,
+                                bootstrap_reps=args.bootstrap_reps,
                                 compare_candidate_path=(args.output / prior["run_id"] / "candidate.py"
                                                         if args.command == "agent" else args.compare_candidate))
-        if args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"]:
-            raise ValueError("Agent revision left predictions unchanged")
+        if (args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"] and
+                prior["policy_sha256"] == report["policy_sha256"]):
+            raise ValueError("Agent revision left predictions and policies unchanged")
         if api_mode:
             analyze_reports_deepseek(prior, report, candidate_path=args.candidate,
                                      output_dir=args.output / report["run_id"],

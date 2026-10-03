@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -30,7 +31,8 @@ class RunTests(unittest.TestCase):
         frame.to_csv(self.root / "data.csv", index=False)
         self.manifest = {
             "dataset": "data.csv", "unit_id": "id",
-            "treatment": {"column": "arm", "control": 0, "treated": 1, "probability": 0.5},
+            "treatment": {"column": "arm", "control": 0, "treated": 1, "probability": 0.5,
+                          "probability_source": "protocol", "probability_reference": "experiment-plan-v1"},
             "features": ["x"], "feature_timing": "pre_treatment",
             "outcomes": {"active": "active", "gross_margin": "margin", "coupon_cost": "cost"},
             "margin_includes_coupon_cost": False,
@@ -53,6 +55,17 @@ class RunTests(unittest.TestCase):
         self.assertTrue((self.root / "runs" / report1["run_id"] / "report.md").exists())
         self.assertEqual((self.root / "runs" / report1["run_id"] / "candidate.py").read_bytes(),
                          Path(__file__).resolve().parents[1].joinpath("src/coupon_lab/candidate.py").read_bytes())
+        self.assertEqual(report1["data_validation"]["feature_timing"], "declared_only")
+        self.assertEqual(set(report1["ranking_diagnostics"]), {"active", "gross_margin"})
+        self.assertTrue(np.isfinite(report1["ranking_diagnostics"]["active"]["qini"]))
+        split_file = self.root / "runs" / report1["run_id"] / "split_manifest.json"
+        split = json.loads(split_file.read_text())
+        self.assertEqual(sorted(split["train"] + split["validation"] + split["test"]), list(range(100)))
+
+    def test_strict_run_rejects_unverifiable_feature_timing(self):
+        with self.assertRaisesRegex(ValueError, "assignment_time_column"):
+            run_experiment(self.path, Budget("count", 0.2), seed=11,
+                           output=self.root / "runs", strict_data=True)
 
     def test_feature_gap_note_is_copied_into_report(self):
         gap = self.root / "feature_gaps.md"
@@ -73,6 +86,91 @@ class RunTests(unittest.TestCase):
             for estimate in metrics.values():
                 self.assertEqual((estimate["mean"], estimate["lower"], estimate["upper"]), (0, 0, 0))
         self.assertTrue((self.root / "runs" / report["run_id"] / "baseline_candidate.py").exists())
+
+    def test_candidate_can_change_budget_policy_without_changing_model(self):
+        baseline = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate = self.root / "policy_candidate.py"
+        candidate.write_text(baseline.read_text() + "\n"
+                             "def choose_policy(scores, costs, budget_kind, budget_value):\n"
+                             "    chosen = np.zeros(len(scores), dtype=bool)\n"
+                             "    chosen[0] = True\n"
+                             "    return chosen\n")
+        report = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs", candidate_path=candidate,
+                                compare_candidate_path=baseline)
+        self.assertEqual(report["policies"]["active"]["selected_count"], 1)
+        self.assertNotEqual(report["policy_sha256"]["active"],
+                            report["baseline_policy_sha256"]["active"])
+
+    def test_stochastic_candidate_policy_repeats_with_same_seed(self):
+        baseline = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate = self.root / "policy_candidate.py"
+        candidate.write_text(baseline.read_text() + "\n"
+                             "def choose_policy(scores, costs, budget_kind, budget_value):\n"
+                             "    chosen = np.zeros(len(scores), dtype=bool)\n"
+                             "    chosen[np.random.permutation(len(scores))[:3]] = True\n"
+                             "    return chosen\n")
+        first = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                               output=self.root / "runs", candidate_path=candidate)
+        second = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs", candidate_path=candidate)
+        self.assertEqual(first["policy_sha256"], second["policy_sha256"])
+
+    def test_run_id_changes_if_candidate_decisions_change(self):
+        baseline = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate = self.root / "policy_candidate.py"
+        candidate.write_text(baseline.read_text() + "\nimport os\n"
+                             "def choose_policy(scores, costs, budget_kind, budget_value):\n"
+                             "    chosen = np.zeros(len(scores), dtype=bool)\n"
+                             "    chosen[int(os.environ['POLICY_INDEX'])] = True\n"
+                             "    return chosen\n")
+        with patch.dict(os.environ, {"POLICY_INDEX": "0"}):
+            first = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                   output=self.root / "runs", candidate_path=candidate)
+        with patch.dict(os.environ, {"POLICY_INDEX": "1"}):
+            second = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                    output=self.root / "runs", candidate_path=candidate)
+        self.assertNotEqual(first["run_id"], second["run_id"])
+
+    def test_candidate_policy_cannot_exceed_budget(self):
+        baseline = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate = self.root / "policy_candidate.py"
+        candidate.write_text(baseline.read_text() + "\n"
+                             "def choose_policy(scores, costs, budget_kind, budget_value):\n"
+                             "    return np.ones(len(scores), dtype=bool)\n")
+        with self.assertRaisesRegex(ValueError, "budget"):
+            run_experiment(self.path, Budget("count", 0.2), seed=11,
+                           output=self.root / "runs", candidate_path=candidate)
+
+    def test_candidate_policy_rejects_invalid_predicted_cost(self):
+        baseline = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate = self.root / "policy_candidate.py"
+        candidate.write_text(baseline.read_text().replace(
+            'result["expected_cost"] = np.maximum(0, cost_model.predict(x_target))',
+            'result["expected_cost"] = -np.ones(len(target))') + "\n"
+            "def choose_policy(scores, costs, budget_kind, budget_value):\n"
+            "    return np.zeros(len(scores), dtype=bool)\n")
+        with self.assertRaisesRegex(ValueError, "expected_cost"):
+            run_experiment(self.path, Budget("cost", 0.25), seed=11,
+                           output=self.root / "runs", candidate_path=candidate)
+
+    def test_report_includes_paired_interval_against_random_policy(self):
+        report = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs")
+        paired = report["paired_vs_random"]["active"]["active"]
+        self.assertAlmostEqual(paired["mean"], report["policies"]["active"]["delta_vs_random"]["active"])
+        self.assertLessEqual(paired["lower"], paired["mean"])
+        self.assertGreaterEqual(paired["upper"], paired["mean"])
+        self.assertIn("net", report["paired_vs_random"]["net_margin"])
+
+    def test_final_report_can_bootstrap_paired_intervals(self):
+        baseline = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        report = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs", final=True,
+                                compare_candidate_path=baseline, bootstrap_reps=100)
+        paired = report["paired_vs_baseline_bootstrap"]["active"]["active"]
+        self.assertEqual((paired["mean"], paired["lower"], paired["upper"]), (0, 0, 0))
+        self.assertIn("active", report["paired_vs_random_bootstrap"])
 
     def test_stochastic_candidate_is_repeatable_for_one_run_id(self):
         def candidate(train, target, **kwargs):
@@ -287,10 +385,33 @@ class RunTests(unittest.TestCase):
                 str(self.root / "runs"), "--agent-provider", "deepseek"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision):
-            with self.assertRaisesRegex(ValueError, "predictions unchanged"):
+            with self.assertRaisesRegex(ValueError, "predictions and policies unchanged"):
                 main()
             self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
         self.assertEqual(candidate.read_bytes(), original)
+
+    def test_agent_command_accepts_policy_only_revision(self):
+        candidate = self.root / "candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate.write_bytes(source.read_bytes())
+
+        def fake_revision(path, *_args, **_kwargs):
+            path.write_text(path.read_text() + "\n"
+                            "def choose_policy(scores, costs, budget_kind, budget_value):\n"
+                            "    chosen = np.zeros(len(scores), dtype=bool)\n"
+                            "    chosen[0] = True\n"
+                            "    return chosen\n")
+
+        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+                "--budget", "0.2", "--candidate", str(candidate), "--output",
+                str(self.root / "runs"), "--agent-provider", "deepseek"]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision), \
+                patch("coupon_lab.cli.analyze_reports_deepseek") as analyze:
+            main()
+        prior, revised = analyze.call_args.args
+        self.assertEqual(prior["prediction_sha256"], revised["prediction_sha256"])
+        self.assertNotEqual(prior["policy_sha256"]["active"], revised["policy_sha256"]["active"])
 
     def test_deepseek_agent_analyzes_revised_report(self):
         candidate = self.root / "candidate.py"

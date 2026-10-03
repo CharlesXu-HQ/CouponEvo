@@ -33,3 +33,12 @@
 - 目标机测试 `python -m unittest discover -s tests -q`：46 个测试通过，包括 EconML CPU/CUDA 路径、同策略零差值、逐用户配对计算、随机候选的可重复运行、仅有收入和实际成本时的净收入策略，以及 Agent 不得移除 EconML learner。
 - X5 200,039 行上，以 `age`、`gender` 两个特征训练 160,031 行、预测 40,008 行；EconML + CUDA 输出全为有限数，GPU 峰值 13,007,360 字节，记录 `runs/x5-econml-smoke.json`。Criteo v2.1 公开 5,000 行样本上，以 12 个匿名特征训练 4,000 行、预测 1,000 行；CUDA 输出全为有限数，记录 `runs/criteo-econml-smoke.json`。这两次只做运行检查，不给因果效果或真实成本结论。
 - 尝试从 [Criteo 官方 v2.1 下载地址](https://ailab.criteo.com/criteo-uplift-prediction-dataset/) 向目标机取完整 296 MiB 文件；当时传输速度约 17 KiB/s，预估需约五小时，故停止并将 1.5 MiB 不完整文件标为 `data/criteo-uplift-v2.1.csv.gz.partial`。完整文件未参加本轮测试。
+
+## 补齐预算策略与数据校验后的复跑
+
+- 目标机按 `uv.lock` 创建 Python 3.12 环境，使用 PyTorch `2.14.1+cu130` 和 NVIDIA RTX 5090。`./.venv/bin/python -m unittest discover -s tests -q`：62 项通过，包含 CUDA 路径。旧目标机默认 `base` 环境缺依赖；本次复跑使用项目 `.venv`。
+- Starbucks 原始文件 SHA-256 仍为 `4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f`。新 manifest 记录了随机分组概率的官方 notebook 引用；七个匿名特征仍无逐行时间戳，报告标为 `declared_only`，不能使用 `--strict-data` 伪称已核验时点。
+- EconML + PyTorch CUDA 基线验证集运行：`runs/completion-baseline/1b324659887ae3b3/report.json`，16,907 人，转化策略相对随机发促销的同用户配对 IPW 差值 `+0.002011/人`，95% 正态近似区间 `[+0.000113,+0.003909]`。这是验证集诊断，不作为最终提升证据。
+- 冻结旧 Agent MLP 和默认岭回归代码后复跑独立 test 集：`runs/completion-final/689debc980935c51/report.json`，16,907 人，`model_device=cuda`。[最终 JSON](coupon-uplift-completion-final.json) 已同步到仓库。MLP 相对岭回归的转化策略差值 `-0.000946/人`，95% 正态近似区间 `[-0.002519,+0.000626]`；内置 2,000 次用户级配对 bootstrap 区间 `[-0.002484,+0.000591]`。两者跨零，仍无 Agent 改善转化的证据；没有 App 活跃或真实净收益标签。
+- 使用同一模型但增加候选 `choose_policy` 的 GPU 运行检查：`runs/completion-policy-smoke/aceff58fc80df1cf/report.json`。预测 SHA-256 与默认基线一致、策略 SHA-256 不同，确认代码允许只改预算策略。该检查故意选择零个用户，只验证接口与评估流程，不是有效营销方案。
+- DeepSeek `deepseek-flash` 在目标机对这个零发券候选实际完成一次 Agent 轮次：旧运行 `runs/completion-agent-policy/ecf75484b098298a/report.json`，新运行 `runs/completion-agent-policy/5ce392ae2fd9dfc7/report.json`；最终框架版本用这两份冻结候选代码再跑出 `runs/completion-agent-policy-rerun/1fce3abf6492799a/report.json`，策略选中人数和配对差值相同。[策略报告](coupon-uplift-agent-policy-report.json)和[high/max 分析](coupon-uplift-agent-policy-analysis.json)已同步。模型预测指纹相同、策略指纹不同，Agent 修改 `choose_policy` 后在预测成本预算内选中 3,381 人；验证集相对零发券策略的配对 IPW 转化差值 `+0.003312/人`、95%区间 `[+0.001707,+0.004918]`。这只是从刻意设置的空策略恢复发券的闭环验证，不能宣称优于正常业务策略，也未使用最终测试集证明提升。分析记录 `high` 初评及因特征时点仅声明、假设成本难以权衡而触发的 `max` 复核。

@@ -24,7 +24,8 @@ class DatasetTests(unittest.TestCase):
         pd.DataFrame(rows).to_csv(self.root / "data.csv", index=False)
         self.manifest = {
             "dataset": "data.csv", "unit_id": "user",
-            "treatment": {"column": "arm", "control": "none", "treated": "coupon", "probability": 0.5},
+            "treatment": {"column": "arm", "control": "none", "treated": "coupon", "probability": 0.5,
+                          "probability_source": "protocol", "probability_reference": "experiment-plan-v1"},
             "features": ["x", "segment"], "feature_timing": "pre_treatment",
             "outcomes": {"active": "active", "gross_margin": "margin", "coupon_cost": "cost"},
             "margin_includes_coupon_cost": False,
@@ -58,8 +59,14 @@ class DatasetTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "probability"):
             self.load()
 
+    def test_probability_without_source_is_rejected(self):
+        self.manifest["treatment"].pop("probability_source")
+        with self.assertRaisesRegex(ValueError, "probability_source"):
+            self.load()
+
     def test_empirical_propensity_requires_randomization_and_sampling_assertions(self):
         self.manifest["treatment"]["probability"] = "empirical"
+        self.manifest["treatment"]["probability_source"] = "empirical"
         with self.assertRaisesRegex(ValueError, "simple_randomized"):
             self.load()
         self.manifest["treatment"].update(simple_randomized=True, sampling_preserves_arms=True)
@@ -94,6 +101,55 @@ class DatasetTests(unittest.TestCase):
         frame.to_csv(self.root / "data.csv", index=False)
         with self.assertRaisesRegex(ValueError, "numeric"):
             self.load()
+
+    def test_feature_recorded_after_assignment_is_rejected(self):
+        frame = pd.read_csv(self.root / "data.csv")
+        frame["assigned_at"] = "2026-01-02"
+        frame["x_asof"] = "2026-01-01"
+        frame.loc[0, "x_asof"] = "2026-01-03"
+        frame.to_csv(self.root / "data.csv", index=False)
+        self.manifest["assignment_time_column"] = "assigned_at"
+        self.manifest["feature_time_columns"] = {"x": "x_asof", "segment": "x_asof"}
+        with self.assertRaisesRegex(ValueError, "after assignment"):
+            self.load()
+
+    def test_feature_recorded_at_assignment_is_not_pre_treatment(self):
+        frame = pd.read_csv(self.root / "data.csv")
+        frame["assigned_at"] = "2026-01-02"
+        frame["x_asof"] = "2026-01-02"
+        frame.to_csv(self.root / "data.csv", index=False)
+        self.manifest["assignment_time_column"] = "assigned_at"
+        self.manifest["feature_time_columns"] = {"x": "x_asof", "segment": "x_asof"}
+        with self.assertRaisesRegex(ValueError, "after assignment"):
+            self.load()
+
+    def test_strict_data_requires_timing_and_probability_evidence(self):
+        self.manifest["treatment"].pop("probability_source")
+        self.manifest["treatment"].pop("probability_reference")
+        path = self.root / "manifest.json"
+        path.write_text(json.dumps(self.manifest))
+        with self.assertRaisesRegex(ValueError, "probability_source"):
+            load_dataset(path, strict=True)
+        self.manifest["treatment"].update(probability_source="protocol",
+                                          probability_reference="experiment-plan-v1")
+        path.write_text(json.dumps(self.manifest))
+        with self.assertRaisesRegex(ValueError, "assignment_time_column"):
+            load_dataset(path, strict=True)
+
+    def test_strict_data_accepts_observed_pre_assignment_times(self):
+        frame = pd.read_csv(self.root / "data.csv")
+        frame["assigned_at"] = "2026-01-02"
+        frame["x_asof"] = "2026-01-01"
+        frame.to_csv(self.root / "data.csv", index=False)
+        self.manifest["assignment_time_column"] = "assigned_at"
+        self.manifest["feature_time_columns"] = {"x": "x_asof", "segment": "x_asof"}
+        self.manifest["treatment"].update(probability_source="protocol",
+                                          probability_reference="experiment-plan-v1")
+        path = self.root / "manifest.json"
+        path.write_text(json.dumps(self.manifest))
+        data = load_dataset(path, strict=True)
+        self.assertEqual(data.validation["feature_timing"], "checked")
+        self.assertEqual(data.validation["assignment_probability"], "documented")
 
 
 if __name__ == "__main__":

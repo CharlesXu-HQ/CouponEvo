@@ -1,0 +1,122 @@
+{
+  "run_id": "5ce392ae2fd9dfc7",
+  "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+  "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+  "candidate_sha256": "c44f7f5306e5bbc0b68fae92647dff601c273532e29bb7ece4bec791301c46fd",
+  "prediction_sha256": "a6ebeb7b03042655625287b4aaa4288d46b2f336072031f6635331d9b1d1a0cb",
+  "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+  "budget": {
+    "kind": "cost",
+    "value": 0.03
+  },
+  "seed": 42,
+  "model_device": "cuda",
+  "holdout": "validation",
+  "holdout_size": 16907,
+  "features": [
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7"
+  ],
+  "outcome_columns": {
+    "conversion": "purchase"
+  },
+  "data_validation": {
+    "feature_timing": "declared_only",
+    "assignment_probability": "documented"
+  },
+  "available_outcomes": [
+    "conversion"
+  ],
+  "unavailable_objectives": [
+    "active",
+    "net_margin"
+  ],
+  "policies": {
+    "conversion": {
+      "selected_count": 3381,
+      "effects": {
+        "conversion": {
+          "mean": 0.0033122375347489205,
+          "lower": 0.0017066163250949017,
+          "upper": 0.004917858744402939,
+          "se": 0.0008191944947214382
+        }
+      },
+      "predicted_cost_per_unit": 0.02999645117406991,
+      "assumed_cost": 0.02999645117406991,
+      "delta_vs_random": {
+        "conversion": 0.002011001360383273
+      }
+    },
+    "random": {
+      "selected_count": 3381,
+      "effects": {
+        "conversion": {
+          "mean": 0.0013012361743656475,
+          "lower": -0.00028821876140729076,
+          "upper": 0.0028906911101385857,
+          "se": 0.0008109463958025196
+        }
+      },
+      "predicted_cost_per_unit": 0.029996451174069908,
+      "assumed_cost": 0.029996451174069908
+    }
+  },
+  "ranking_diagnostics": {
+    "conversion": {
+      "auuc": 0.006851530381242987,
+      "qini": 0.0025337921663024293
+    }
+  },
+  "policy_sha256": {
+    "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b",
+    "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+  },
+  "paired_vs_random": {
+    "conversion": {
+      "conversion": {
+        "mean": 0.0020110013603832732,
+        "lower": 0.00011335906060234492,
+        "upper": 0.003908643660164202,
+        "se": 0.0009681848468270042
+      }
+    }
+  },
+  "notes": [
+    "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+    "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+    "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+    "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+    "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+    "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。"
+  ],
+  "feature_gaps": null,
+  "compare_candidate_sha256": "b5d9c57e53b05d962e471eee585066650f5c506be8f374c20d1491e236b33d46",
+  "compare_prediction_sha256": "a6ebeb7b03042655625287b4aaa4288d46b2f336072031f6635331d9b1d1a0cb",
+  "paired_vs_baseline": {
+    "conversion": {
+      "conversion": {
+        "mean": 0.0033122375347489205,
+        "lower": 0.0017066163250949017,
+        "upper": 0.004917858744402939,
+        "se": 0.0008191944947214382
+      }
+    }
+  },
+  "baseline_policy_sha256": {
+    "conversion": "95baa553c12adad3d37af438236c59d190df2d2b99b63f5f90b2dc1c08f8fd8a"
+  },
+  "agent": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "previous_run_id": "ecf75484b098298a",
+    "provider_url": "https://api.deepseek.com",
+    "iteration_effort": "high",
+    "review_effort": "max"
+  }
+}

@@ -3,3 +3,4 @@ __pycache__/
 runs/
 data/
 .venv/
+*.egg-info/

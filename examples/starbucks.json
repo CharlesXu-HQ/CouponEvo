@@ -5,7 +5,9 @@
     "column": "Promotion",
     "control": "No",
     "treated": "Yes",
-    "probability": 0.5
+    "probability": 0.5,
+    "probability_source": "protocol",
+    "probability_reference": "https://github.com/udacity/DSND_Term2/blob/master/portfolio_exercises/Experiments/Starbucks.ipynb"
   },
   "features": ["V1", "V2", "V3", "V4", "V5", "V6", "V7"],
   "feature_timing": "pre_treatment",

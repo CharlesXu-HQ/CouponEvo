@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from coupon_lab.candidate import fit_predict
-from coupon_lab.evaluate import Budget, compare_policies, estimate_cost, evaluate_policy, select_policy
+from coupon_lab.evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
 
 
 class EvaluationTests(unittest.TestCase):
@@ -49,6 +49,25 @@ class EvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(estimate.se, np.std([0, 2, 0, 0], ddof=1) / 2)
         same = compare_policies(frame, new, new, "active", 0.5)
         self.assertEqual((same.mean, same.lower, same.upper, same.se), (0, 0, 0, 0))
+
+    def test_bootstrap_policy_difference_uses_paired_users(self):
+        frame = pd.DataFrame({"__treatment": [0, 1, 0, 1], "active": [0, 1, 1, 1]})
+        old = np.array([True, False, True, False])
+        new = np.array([False, True, True, False])
+        estimate = bootstrap_policy_difference(frame, new, old, "active", 0.5, reps=500, seed=7)
+        self.assertAlmostEqual(estimate.mean, 0.5)
+        self.assertGreaterEqual(estimate.lower, 0)
+        self.assertLessEqual(estimate.upper, 2)
+        same = bootstrap_policy_difference(frame, new, new, "active", 0.5, reps=500, seed=7)
+        self.assertEqual((same.mean, same.lower, same.upper), (0, 0, 0))
+
+    def test_ranking_diagnostic_rewards_early_positive_increment(self):
+        frame = pd.DataFrame({"__treatment": [1, 0, 1, 0], "active": [1, 0, 0, 0]})
+        good = ranking_diagnostic(frame, np.array([4, 3, 2, 1]), "active", 0.5)
+        bad = ranking_diagnostic(frame, np.array([1, 2, 3, 4]), "active", 0.5)
+        self.assertAlmostEqual(good["qini"], 0.1875)
+        self.assertAlmostEqual(bad["qini"], -0.1875)
+        self.assertGreater(good["auuc"], bad["auuc"])
 
     def test_candidate_handles_optional_cost_and_categories(self):
         rows = []

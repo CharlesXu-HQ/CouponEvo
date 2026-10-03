@@ -1,0 +1,43 @@
+{
+  "model": "deepseek-flash",
+  "provider_url": "https://api.deepseek.com",
+  "initial_effort": "high",
+  "review_effort": "max",
+  "run_id": "5ce392ae2fd9dfc7",
+  "high": {
+    "summary": "这是离线随机优惠券 uplift 实验。after 相对 baseline（before 的空策略）的 paired_vs_baseline 区间在验证集为 mean=0.003312，95% 区间 [0.001707, 0.004918]，不含 0；paired_vs_random 区间为 [0.000113, 0.003909]，也不含 0。但报告明确提示该验证集区间经过多轮调参，不能作为最终提升证据，且不能仅凭候选策略与随机策略的独立区间是否重叠来下最终结论。成本方面，预算为平均预测成本 0.03，选中 3381 人；fixed_send_cost=0.15/选中 treated 用户是假设费用，不是实际核销成本；策略效果与成本按全体 16907 名合格 holdout 用户平均。因此只能认为新策略在验证集上方向性乐观，需独立确认。",
+    "recommendation": "暂不宣布最终提升或上线定论。建议：1）在未调参的独立 holdout 或在线随机 A/B 中预注册复测；2）补充逐行特征时间证据，确认无干预后特征泄漏；3）用实际核销/净毛利替代固定发券假设成本，并核对预算约束；4）同时报告随机策略与旧策略的配对区间，避免用验证集多轮调参结果当最终证据。",
+    "uplift_anomaly": {
+      "flag": false,
+      "evidence": "未发现明确 uplift 异常：after 的 paired_vs_baseline 区间 [0.0017066, 0.0049179] 在验证集为正，且与候选策略效应均值一致；前后 ranking_diagnostics 相同、prediction_sha 相同，主要变化是 policy_sha/selected_count 从 0 变为 3381，提示策略选择逻辑变化而非 uplift 模型矛盾。但该区间经过多轮调参，存在乐观偏差不确定性，不能据此确认最终提升。"
+    },
+    "feature_leakage": {
+      "flag": true,
+      "evidence": "data_validation.feature_timing='declared_only'，报告 notes 也指出特征时点仅由 manifest 声明、缺少逐行时间证据，无法确认无干预后特征；assignment_probability 虽记录为 documented，但引用内容与试验执行情况仍需人工核对。存在特征泄漏/时点不可验证的嫌疑，但当前证据不足以确认真实泄漏。"
+    },
+    "cost_tradeoff_unclear": {
+      "flag": true,
+      "evidence": "报告中的成本是每位选中 treated 用户 0.15 的固定发券假设，再按全体 16907 名合格 holdout 用户平均得到约 0.03；不是实际核销成本。net_margin 与 active 目标不可用，notes 明确观测成本及区间可能超过预算。因此无法判断真实成本-uplift 权衡，需实际核销/净毛利与预算执行数据。"
+    }
+  },
+  "review_reasons": [
+    "feature_leakage",
+    "cost_tradeoff_unclear"
+  ],
+  "max": {
+    "summary": "独立复核确认：after 相对旧策略（baseline_policy_sha=95baa...；旧策略 selected_count=0、effects=0，即空策略）的 paired_vs_baseline 为 mean=0.003312，95%区间[0.001707,0.004918]，验证集上为正；after 相对 random 的 paired_vs_random 为 mean=0.002011，区间[0.000113,0.003909]，也为正。注意前后 prediction_sha256 与 ranking_diagnostics 相同，变化主要是 policy_sha/selected_count 从0到3381，即策略选择变化而非 uplift 模型变化。所有区间均为同一 validation 集且经多轮调参，不能据此宣布最终提升；也不能用候选/随机/旧策略的独立区间是否重叠来替代配对区间判断。策略效果和成本按全体 16907 名合格 holdout 用户平均；fixed_send_cost=0.15 是每个选中 treated 用户的假设发券费用，不是实际核销成本。",
+    "recommendation": "暂不宣布最终提升或上线定论。建议：1）在未调参的独立 holdout 或在线随机 A/B 中预注册复测，并报告新旧策略、随机策略的配对区间；2）补充逐行特征生成时间、干预时间与数据血缘，确认无干预后特征；3）用实际核销/净毛利替代固定发券假设成本，并核对预算执行；4）对多轮调参做多重比较校正，避免把验证集乐观区间当作最终证据。",
+    "uplift_anomaly": {
+      "flag": false,
+      "evidence": "未发现可确认的 uplift 异常。after 的 paired_vs_baseline [0.0017066,0.0049179] 与 paired_vs_random [0.0001134,0.0039086] 在验证集为正，方向与策略选择一致；前后 prediction_sha256 相同、ranking_diagnostics 相同，说明 uplift 模型/排序未变，变动是 policy_sha 与 selected_count 从0到3381。但旧策略为空策略，paired_vs_baseline 实质是新策略 vs 空策略；且区间经多轮调参，存在乐观偏差，不能作为最终提升证据。"
+    },
+    "feature_leakage": {
+      "flag": true,
+      "evidence": "确认该触发为风险/不可验证，而非已证实泄漏。data_validation.feature_timing='declared_only'，notes 明确特征时点仅由 manifest 声明、缺少逐行时间证据，无法确认无干预后特征；assignment_probability 虽为 documented，但引用内容与试验执行情况仍需人工核对。当前证据不足以确认真实泄漏，需补充逐行/逐特征时间戳与干预时间对照。"
+    },
+    "cost_tradeoff_unclear": {
+      "flag": true,
+      "evidence": "确认触发。报告成本是每位选中 treated 用户 fixed_send_cost=0.15 的固定发券假设，再按全体 16907 名合格 holdout 用户平均得到约 0.029996，不是实际核销成本；net_margin、active 不可用，预算约束基于预测成本而非实际成本，notes 明确观测成本及区间可能超过预算。因此无法判断真实成本-uplift/净毛利权衡。"
+    }
+  }
+}
