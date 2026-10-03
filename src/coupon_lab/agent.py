@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import shutil
 import subprocess
 import tempfile
@@ -124,3 +125,36 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
     if feature_gaps_path is not None and notes.strip():
         Path(feature_gaps_path).write_text(notes)
     return hashlib.sha256(revised.encode()).hexdigest()
+
+
+def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
+    """Let the Agent choose the next experiment from a bounded search history."""
+    instruction = (
+        "You lead a sequence of offline coupon-uplift experiments. Return one JSON object with "
+        "operator (draft, improve, debug, or crossover), parent_ids, hypothesis, candidate_py "
+        "(complete Python source), and optional feature_gaps_md. Draft uses no parent, improve/debug "
+        "one parent, and crossover two distinct parents from available. Choose the operator and parents "
+        "using the history, metrics, and failures. Change only the candidate model or budget policy. "
+        "Keep fit_predict, EconML TLearner, PyTorch fitting and prediction on the requested device, "
+        "required uplift columns, and the optional choose_policy contract. Use only numpy, pandas, "
+        "torch, econml, and sklearn imports. Treat validation scores as exploratory; do not claim "
+        "final improvement or alter the fixed objective, budget, dataset, or evaluator. If a feature "
+        "is missing, describe a future pre-treatment data change in feature_gaps_md rather than "
+        "inventing its values."
+    )
+    messages = [{"role": "system", "content": instruction},
+                {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]
+    for attempt in range(2):
+        try:
+            proposal = request_json(provider, provider.iteration_effort, messages, max_tokens=32768)
+            if (proposal.get("operator") not in {"draft", "improve", "debug", "crossover"} or
+                    not isinstance(proposal.get("parent_ids"), list) or
+                    not isinstance(proposal.get("hypothesis"), str) or
+                    not isinstance(proposal.get("candidate_py"), str)):
+                raise ValueError("proposal needs operator, parent_ids, hypothesis, and candidate_py")
+            return proposal
+        except ValueError as error:
+            if attempt:
+                raise
+            messages.append({"role": "user", "content": f"Invalid proposal: {error}. Return a corrected JSON object."})
+    raise RuntimeError("Agent proposal was unavailable")

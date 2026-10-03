@@ -15,11 +15,12 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .agent import revise_candidate, revise_candidate_deepseek
+from .agent import propose_search_candidate, revise_candidate, revise_candidate_deepseek
 from .analysis import analyze_reports_deepseek
 from .data import load_dataset, split_dataset
 from .evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
 from .provider import ApiProvider
+from .search import finalize_search, run_search
 
 
 def _sha(data: bytes) -> str:
@@ -412,7 +413,7 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run offline coupon uplift experiments")
-    parser.add_argument("command", choices=["run", "agent"])
+    parser.add_argument("command", choices=["run", "agent", "search", "finalize"])
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--budget-kind", choices=["count", "cost"], required=True)
     parser.add_argument("--budget", type=float, required=True, help="fraction of units, or cost per eligible unit")
@@ -425,16 +426,25 @@ def main() -> None:
     parser.add_argument("--strict-data", action="store_true", help="require checked pre-assignment feature times")
     parser.add_argument("--bootstrap-reps", type=int, default=0, help="paired bootstrap interval on final holdout")
     parser.add_argument("--feature-gaps", type=Path, help="existing human or Agent feature suggestions")
+    parser.add_argument("--objective", help="fixed policy objective for Agent search, such as active or net_margin")
+    parser.add_argument("--max-steps", type=int, default=3, help="maximum Agent proposals in a search")
+    parser.add_argument("--search-id", help="directory name for one resumable search")
+    parser.add_argument("--resume", action="store_true", help="continue an existing search journal")
+    parser.add_argument("--timeout-seconds", type=int, default=3600, help="per-candidate evaluation timeout")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
     parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
     parser.add_argument("--agent-provider-url", help="API base URL or full chat/completions endpoint")
     parser.add_argument("--agent-api-key-env", help="environment variable holding the API key")
     parser.add_argument("--agent-model", help="Agent model override; DeepSeek defaults to deepseek-flash")
     args = parser.parse_args()
-    if args.command == "agent" and args.final:
-        parser.error("agent revisions must use validation; run --final separately after selection")
-    api_mode = args.command == "agent" and (args.agent_provider != "codex" or
-                                               args.agent_config is not None or args.agent_provider_url is not None)
+    if args.command in {"agent", "search"} and args.final:
+        parser.error("agent revisions and search must use validation; run --final separately after selection")
+    if args.command in {"search", "finalize"} and (not args.objective or not args.search_id):
+        parser.error("search and finalize need --objective and --search-id")
+    api_mode = args.command in {"agent", "search"} and (args.agent_provider != "codex" or
+                                                         args.agent_config is not None or args.agent_provider_url is not None)
+    if args.command == "search" and not api_mode:
+        parser.error("search needs an API Agent provider URL/config or --agent-provider deepseek")
     provider_name = ("api" if args.agent_provider == "codex" and api_mode else args.agent_provider)
     api_provider = None
     if api_mode:
@@ -465,6 +475,30 @@ def main() -> None:
         except ValueError as error:
             parser.error(str(error))
     budget = Budget(args.budget_kind, args.budget)
+    if args.command == "finalize":
+        report = finalize_search(args.manifest, budget, seed=args.seed, output=args.output,
+                                 initial_candidate=args.candidate, objective=args.objective,
+                                 search_id=args.search_id, device=args.device,
+                                 strict_data=args.strict_data, timeout_seconds=args.timeout_seconds,
+                                 bootstrap_reps=args.bootstrap_reps or 2000)
+        print(args.output / args.search_id / "final" / report["run_id"] / "report.md")
+        return
+    if args.command == "search":
+        journal = run_search(args.manifest, budget, seed=args.seed, output=args.output,
+                             initial_candidate=args.candidate, objective=args.objective,
+                             max_steps=args.max_steps, search_id=args.search_id,
+                             proposer=lambda context: propose_search_candidate(api_provider, context),
+                             device=args.device, strict_data=args.strict_data,
+                             resume=args.resume, timeout_seconds=args.timeout_seconds,
+                             agent_info={"provider_url": api_provider.url, "model": api_provider.model,
+                                         "thinking": api_provider.thinking,
+                                         "iteration_effort": api_provider.iteration_effort,
+                                         "review_effort": api_provider.review_effort},
+                             analyzer=lambda prior, revised, candidate, directory:
+                             analyze_reports_deepseek(prior, revised, candidate_path=candidate,
+                                                      output_dir=directory, provider=api_provider))
+        print(args.output / args.search_id / "journal.json")
+        return
     original_candidate = args.candidate.read_bytes() if args.command == "agent" else None
     try:
         if args.command == "agent":

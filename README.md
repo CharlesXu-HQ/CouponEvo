@@ -43,6 +43,27 @@ python -m coupon_lab.cli agent examples/starbucks.json --budget-kind cost --budg
 
 这个命令先生成报告，再让 Agent 读取候选代码和报告、修改 `candidate.py`，检查语法后重新实验。候选算法使用 EconML `TLearner`，底层结果模型以 PyTorch 在指定设备训练；Agent 可以调模型参数、使用干预前特征，或加入 `choose_policy(scores, costs, budget_kind, budget_value)` 返回逐用户布尔发券决策。评估器会拒绝超过人数或预测成本预算的策略。Codex 使用临时工作目录；DeepSeek API 只接收候选代码和报告。若发现缺少关键的干预前用户特征，Agent 可另写 `feature_gaps.md`，记录建议字段、来源、时点、证据、泄漏风险和下一版验证方法；该文件会进入新一轮报告，当前固定 dataset 不变。自动修改可能产生性能更差的候选；各轮报告和代码快照可供比较。
 
+## Agent 主导的多轮搜索
+
+`search` 让 API Agent 根据历史候选、评估指标和失败原因，自行选择 `draft`、`improve`、`debug` 或 `crossover`，提出假设并生成下一版完整候选代码。实验目标、数据、预算、评估器和最多迭代次数由命令固定。沿用上面的 `DEEPSEEK_API_KEY` 环境变量，在有 CUDA 的目标机执行：
+
+```bash
+python -m coupon_lab.cli search examples/starbucks.json --budget-kind cost --budget 0.03 \
+  --objective conversion --max-steps 3 --search-id starbucks-search-01 \
+  --device cuda --agent-provider deepseek --agent-model deepseek-flash
+```
+
+也可用 `--agent-config` 或 `--agent-provider-url`、`--agent-model` 和密钥环境变量配置其他兼容服务。`runs/<search-id>/journal.json` 保存基线、每轮假设、父候选、状态、验证集分数和分析；`steps/` 保存候选快照，`runs/` 保存评估报告。失败候选留在日志中供 Agent 修复；中断后用相同参数加 `--resume` 继续，`--max-steps` 可以增大。Agent 代码迭代和报告分析使用 `high`，已有反常 uplift、疑似泄漏或成本权衡不清时仍按上述规则进行 `max` 复核。
+
+搜索分数只是反复使用验证反馈后的**探索性排序**。确定搜索结束后，使用相同任务参数冻结验证集冠军，并只在独立测试集比较一次：
+
+```bash
+python -m coupon_lab.cli finalize examples/starbucks.json --budget-kind cost --budget 0.03 \
+  --objective conversion --search-id starbucks-search-01 --device cuda --bootstrap-reps 2000
+```
+
+最终报告位于 `runs/<search-id>/final/<run_id>/`，含与初始候选的逐用户配对差值和 bootstrap 区间；完成最终测试后，该搜索不能继续迭代。候选评估在独立 Python 进程运行，便于限制单次耗时并保留失败记录；**这不是安全沙箱**，生成代码仍可访问运行用户有权限读取的文件。当前应只在受信任的离线实验环境运行，接入敏感业务数据前需要容器级文件和网络隔离。公开 Starbucks 只有购买转化及假设发送成本，不能据此判定 App 促活或真实净收益提升。
+
 ## Dataset manifest
 
 参照 [starbucks.json](examples/starbucks.json) 映射固定 CSV。`treatment` 选定一个对照臂和一个干预臂；其他臂被过滤。`outcomes` 至少有一个非成本结果，可包含 `active`、`visit`、`click`、`conversion`、`revenue`、`gross_margin`、`coupon_cost`。特征须在随机分组前可用，且不得包含分组、结果或成本字段。有用户 ID 时要求一人一行；若没有用户 ID，会按行切分并在报告中提示无法检查同一用户跨切分。
@@ -66,4 +87,4 @@ python -m coupon_lab.cli run examples/starbucks.json --budget-kind cost --budget
   --candidate runs/new-candidate.py --compare-candidate runs/baseline-candidate.py --final --bootstrap-reps 2000
 ```
 
-验证集配对区间不能作为多轮筛选后的最终提升证据；测试集也应只在候选与指标确定后使用一次。若现行业务规则可复现，可把它实现为另一份候选文件并用 `--compare-candidate` 比较；当前尚未取得该规则。当前只有一种干预相对不干预、一次决策、CSV 输入、数值和类别特征的 EconML T-learner，默认 PyTorch 岭回归结果模型。CPU 和 CUDA 路径都用 PyTorch 训练和预测；`--device cuda` 要求候选算法在 GPU 上执行并确认设备。特征读取与预处理仍由 CPU 完成。该原型不执行线上发券，不自动采集数据，也不将公开数据缺少的收入或券成本补造成真实标签。公开数据的授权和字段差异见[调研记录](docs/research/open-uplift-datasets.md)；三份公开数据在目标机的测试结果见[GPU 验证记录](docs/research/gpu-validation-2026-10-03.md)。
+验证集配对区间不能作为多轮筛选后的最终提升证据；测试集也应只在候选与指标确定后使用一次。若现行业务规则可复现，可把它实现为另一份候选文件并用 `--compare-candidate` 比较；当前尚未取得该规则。当前只有一种干预相对不干预、一次决策、CSV 输入、数值和类别特征的 EconML T-learner，默认 PyTorch 岭回归结果模型。CPU 和 CUDA 路径都用 PyTorch 训练和预测；`--device cuda` 要求候选算法在 GPU 上执行并确认设备。特征读取与预处理仍由 CPU 完成。该原型不执行线上发券，不自动采集数据，也不将公开数据缺少的收入或券成本补造成真实标签。公开数据的授权和字段差异见[调研记录](docs/research/open-uplift-datasets.md)；三份公开数据在目标机的测试结果见[GPU 验证记录](docs/research/gpu-validation-2026-10-03.md)，本次 Agent 多轮搜索见[实验记录](docs/research/agent-search-gpu-2026-10-03.md)。

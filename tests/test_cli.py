@@ -496,6 +496,69 @@ class RunTests(unittest.TestCase):
         self.assertEqual(provider.iteration_effort, "high")
         self.assertEqual(provider.review_effort, "max")
 
+    def test_search_command_runs_agent_steps_and_resumes(self):
+        candidate = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        calls = []
+
+        def propose(_provider, context):
+            calls.append(context)
+            source = context["available"]["seed"]["candidate_py"]
+            return {"operator": "draft", "parent_ids": [], "hypothesis": f"search idea {len(calls)}",
+                    "candidate_py": source + f"\n# search idea {len(calls)}\n"}
+
+        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                "--candidate", str(candidate), "--objective", "active", "--max-steps", "1",
+                "--search-id", "test-search", "--output", str(self.root / "runs"),
+                "--agent-provider", "deepseek"]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.propose_search_candidate", side_effect=propose), \
+                patch("coupon_lab.cli.analyze_reports_deepseek", return_value={"high": {}}):
+            main()
+            self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
+        journal_path = self.root / "runs/test-search/journal.json"
+        first = json.loads(journal_path.read_text())
+        self.assertEqual(len(first["steps"]), 1)
+        self.assertEqual(first["steps"][0]["report"]["holdout"], "validation")
+        self.assertEqual(first["agent"]["model"], "deepseek-flash")
+        self.assertNotIn("test-key", journal_path.read_text())
+
+        resumed_args = args.copy()
+        resumed_args[resumed_args.index("--max-steps") + 1] = "2"
+        resumed_args.append("--resume")
+        with patch.object(sys, "argv", resumed_args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.propose_search_candidate", side_effect=propose), \
+                patch("coupon_lab.cli.analyze_reports_deepseek", return_value={"high": {}}):
+            main()
+        self.assertEqual(len(json.loads(journal_path.read_text())["steps"]), 2)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("analysis", calls[1]["history"][-1])
+
+    def test_search_rejects_final_holdout(self):
+        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                "--objective", "active", "--final", "--agent-provider", "deepseek"]
+        with patch.object(sys, "argv", args), self.assertRaises(SystemExit):
+            main()
+
+    def test_finalize_command_evaluates_frozen_search(self):
+        candidate = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                "--candidate", str(candidate), "--objective", "active", "--max-steps", "1",
+                "--search-id", "finalize-trial", "--output", str(self.root / "runs"),
+                "--agent-provider", "deepseek"]
+        proposal = {"operator": "draft", "parent_ids": [], "hypothesis": "candidate",
+                    "candidate_py": candidate.read_text() + "\n# experiment\n"}
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.propose_search_candidate", return_value=proposal), \
+                patch("coupon_lab.cli.analyze_reports_deepseek", return_value={"high": {}}):
+            main()
+        final_args = ["coupon-lab", "finalize", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                      "--candidate", str(candidate), "--objective", "active", "--search-id", "finalize-trial",
+                      "--output", str(self.root / "runs"), "--bootstrap-reps", "100"]
+        with patch.object(sys, "argv", final_args):
+            main()
+        journal = json.loads((self.root / "runs/finalize-trial/journal.json").read_text())
+        self.assertEqual(journal["final"]["report"]["holdout"], "test")
+
 
 if __name__ == "__main__":
     unittest.main()
