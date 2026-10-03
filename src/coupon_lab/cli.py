@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from .agent import revise_candidate, revise_candidate_deepseek
+from .analysis import analyze_reports_deepseek
 from .data import load_dataset, split_dataset
 from .evaluate import Budget, estimate_cost, evaluate_policy, select_policy
 
@@ -249,7 +250,6 @@ def main() -> None:
             if args.agent_provider == "deepseek":
                 revise_candidate_deepseek(args.candidate, prior_report, api_key=api_key,
                                           feature_gaps_path=args.feature_gaps, model=model)
-                api_key = None
             else:
                 revise_candidate(args.candidate, prior_report,
                                  feature_gaps_path=args.feature_gaps, model=args.agent_model)
@@ -264,6 +264,11 @@ def main() -> None:
                                 feature_gaps=args.feature_gaps, agent_info=agent_info)
         if args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"]:
             raise ValueError("Agent revision left predictions unchanged")
+        if args.command == "agent" and args.agent_provider == "deepseek":
+            analyze_reports_deepseek(prior, report, candidate_path=args.candidate,
+                                     output_dir=args.output / report["run_id"],
+                                     api_key=api_key, model=model)
+            api_key = None
     except Exception:
         if original_candidate is not None:
             args.candidate.write_bytes(original_candidate)

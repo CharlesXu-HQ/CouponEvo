@@ -67,8 +67,9 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
     user_message = f"Candidate:\n{before}\n\nReport:\n{report_path.read_text()}"
     for attempt in range(2):
         payload = json.dumps({
-            "model": model, "thinking": {"type": "disabled"},
-            "response_format": {"type": "json_object"}, "max_tokens": 6000,
+            "model": model, "thinking": {"type": "enabled"},
+            "reasoning_effort": "high", "response_format": {"type": "json_object"},
+            "max_tokens": 16384,
             "messages": [{"role": "system", "content": prompt},
                          {"role": "user", "content": user_message}],
         }).encode()

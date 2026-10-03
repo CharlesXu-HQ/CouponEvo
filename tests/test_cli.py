@@ -171,7 +171,8 @@ class RunTests(unittest.TestCase):
         request = call.call_args.args[0]
         body = json.loads(request.data)
         self.assertEqual(body["model"], "deepseek-flash")
-        self.assertEqual(body["thinking"], {"type": "disabled"})
+        self.assertEqual(body["thinking"], {"type": "enabled"})
+        self.assertEqual(body["reasoning_effort"], "high")
 
     def test_deepseek_repairs_invalid_python_once(self):
         candidate = self.root / "candidate.py"
@@ -218,6 +219,29 @@ class RunTests(unittest.TestCase):
                 main()
             self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
         self.assertEqual(candidate.read_bytes(), original)
+
+    def test_deepseek_agent_analyzes_revised_report(self):
+        candidate = self.root / "candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate.write_bytes(source.read_bytes())
+
+        def fake_revision(path, *_args, **_kwargs):
+            path.write_text(path.read_text().replace(
+                'result[f"{name}_uplift"] = treated - control',
+                'result[f"{name}_uplift"] = treated - control + 0.1'))
+
+        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+                "--budget", "0.2", "--candidate", str(candidate), "--output",
+                str(self.root / "runs"), "--agent-provider", "deepseek"]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision), \
+                patch("coupon_lab.cli.analyze_reports_deepseek") as analyze:
+            main()
+        self.assertEqual(analyze.call_count, 1)
+        prior, revised = analyze.call_args.args
+        self.assertNotEqual(prior["prediction_sha256"], revised["prediction_sha256"])
+        self.assertEqual(analyze.call_args.kwargs["api_key"], "test-key")
+        self.assertEqual(analyze.call_args.kwargs["output_dir"], self.root / "runs" / revised["run_id"])
 
 
 if __name__ == "__main__":
