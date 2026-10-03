@@ -2,8 +2,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from promolift.agent import propose_search_candidate
-from promolift.provider import ApiProvider
+from couponevo.agent import propose_search_candidate
+from couponevo.provider import ApiProvider
 
 
 class FakeResponse:

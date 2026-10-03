@@ -1,4 +1,4 @@
-# Contributing to PromoLift
+# Contributing to CouponEvo
 
 Thank you for improving reproducible marketing experiments.
 

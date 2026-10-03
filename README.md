@@ -1,8 +1,8 @@
-# PromoLift
+# CouponEvo
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-PromoLift is an Agent-guided offline experiment runner for marketing interventions. Its first supported task is cost-aware uplift modeling for a fixed randomized dataset: the Agent proposes model or targeting-code changes, the runner evaluates them under a frozen objective and budget, and a final holdout compares the chosen candidate with the seed policy.
+CouponEvo is an Agent-guided offline experiment runner for cost-aware coupon targeting. The name pairs *coupon* with the evolution of candidate algorithms across experiments. For a fixed randomized dataset, the Agent proposes model or targeting-code changes, the runner evaluates them under a frozen objective and budget, and a final holdout compares the chosen candidate with the seed policy.
 
 ## Status
 
@@ -17,16 +17,16 @@ Python 3.12+, [uv](https://docs.astral.sh/uv/), and the [Starbucks randomized pr
 
 ```bash
 uv sync --frozen --python 3.12
-uv run --frozen python -m promolift.cli run examples/starbucks.json \
+uv run --frozen python -m couponevo.cli run examples/starbucks.json \
   --budget-kind cost --budget 0.03 --seed 42 --device cuda
 ```
 
 To let an API Agent search, set `AGENT_API_KEY` in your shell, then build and pin the sandbox image:
 
 ```bash
-docker build -f Dockerfile.sandbox -t promolift-sandbox:py312-cuda128 .
-export SANDBOX_IMAGE="$(docker image inspect promolift-sandbox:py312-cuda128 --format '{{.Id}}')"
-uv run --frozen python -m promolift.cli search examples/starbucks.json \
+docker build -f Dockerfile.sandbox -t couponevo-sandbox:py312-cuda128 .
+export SANDBOX_IMAGE="$(docker image inspect couponevo-sandbox:py312-cuda128 --format '{{.Id}}')"
+uv run --frozen python -m couponevo.cli search examples/starbucks.json \
   --budget-kind cost --budget 0.03 --objective conversion --seed 42 \
   --max-steps 3 --search-id starbucks-01 --device cuda \
   --agent-config examples/agent.deepseek.json --sandbox-image "$SANDBOX_IMAGE"
@@ -37,7 +37,7 @@ The example config uses an OpenAI-compatible provider URL, model name, and API-k
 After the search, freeze its validation champion and run the independent test once:
 
 ```bash
-uv run --frozen python -m promolift.cli finalize examples/starbucks.json \
+uv run --frozen python -m couponevo.cli finalize examples/starbucks.json \
   --budget-kind cost --budget 0.03 --objective conversion --seed 42 \
   --search-id starbucks-01 --device cuda --bootstrap-reps 2000 \
   --sandbox-image "$SANDBOX_IMAGE"
@@ -49,7 +49,7 @@ Reports and candidate snapshots go under `runs/`, which is ignored by Git. See t
 
 | Path | Purpose |
 | --- | --- |
-| `src/promolift/` | Dataset validation, candidate model, Agent, search, evaluation, sandbox, and task-bound experience |
+| `src/couponevo/` | Dataset validation, candidate model, Agent, search, evaluation, sandbox, and task-bound experience |
 | `examples/` | Public-data manifests, frozen task specs, and Agent configuration; no raw data |
 | `tests/` | Unit and integration tests |
 | `docs/` | Business data contract and historical experiment records |

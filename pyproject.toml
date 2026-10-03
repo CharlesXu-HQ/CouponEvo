@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "promolift"
+name = "couponevo"
 version = "0.1.0"
-description = "Agent-guided, cost-aware uplift experiments for marketing interventions"
+description = "Agent-guided uplift experiments for cost-aware coupon targeting"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12"

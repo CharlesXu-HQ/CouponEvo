@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from promolift.sandbox import DockerSandbox
+from couponevo.sandbox import DockerSandbox
 
 
 class SandboxTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class SandboxTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "private-key"}), \
-                    patch("promolift.sandbox.subprocess.run", side_effect=fake_docker):
+                    patch("couponevo.sandbox.subprocess.run", side_effect=fake_docker):
                 result = DockerSandbox("test-image").predict(candidate, train, target,
                                                                {"features": ["x"]}, 42, "cuda")
             command = seen["command"]

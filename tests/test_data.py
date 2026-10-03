@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from promolift.data import load_dataset, split_dataset
+from couponevo.data import load_dataset, split_dataset
 
 
 class DatasetTests(unittest.TestCase):

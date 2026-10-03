@@ -20,12 +20,12 @@ class DockerSandbox:
         self.image = image
         self.timeout_seconds = timeout_seconds
         self.source = Path(__file__).resolve().parents[1]
-        self.venv = Path(os.environ.get("COUPON_LAB_SANDBOX_VENV", os.sys.prefix)).resolve()
+        self.venv = Path(os.environ.get("COUPONEVO_SANDBOX_VENV", os.sys.prefix)).resolve()
         if not (self.venv / "bin/python").exists():
             raise ValueError("sandbox requires a Linux Python 3.12 virtual environment")
 
     def _run(self, candidate: Path, job: dict, frames: dict[str, pd.DataFrame] | None = None) -> tuple[dict, str]:
-        with tempfile.TemporaryDirectory(prefix="coupon-sandbox-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="couponevo-sandbox-") as scratch:
             root = Path(scratch)
             input_dir, output_dir = root / "input", root / "output"
             input_dir.mkdir()
@@ -45,7 +45,7 @@ class DockerSandbox:
                        "--mount", f"type=bind,src={self.source},dst=/opt/coupon-src,readonly",
                        "--mount", f"type=bind,src={self.venv},dst=/opt/venv,readonly",
                        "--env", "PYTHONPATH=/opt/coupon-src", "--env", "PYTHONDONTWRITEBYTECODE=1",
-                       self.image, "/opt/venv/bin/python", "-m", "promolift.sandbox_worker",
+                       self.image, "/opt/venv/bin/python", "-m", "couponevo.sandbox_worker",
                        "/input", "/output"]
             if job.get("device") == "cuda":
                 command[2:2] = ["--gpus", "all"]

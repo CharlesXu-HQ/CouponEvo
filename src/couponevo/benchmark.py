@@ -21,7 +21,7 @@ def _invoke(command: list[str]) -> None:
 
 def _cli(task: Task, command: str, output: Path, search_id: str, image: str,
          device: str) -> list[str]:
-    return [sys.executable, "-m", "promolift.cli", command, str(task.manifest),
+    return [sys.executable, "-m", "couponevo.cli", command, str(task.manifest),
             "--budget-kind", task.budget.kind, "--budget", str(task.budget.value),
             "--seed", str(task.seed), "--candidate", str(task.candidate),
             "--objective", task.objective, "--search-id", search_id,
@@ -91,7 +91,7 @@ def run_benchmark(tasks: list[Task], *, output: Path, agent_config: Path,
         plain = json.loads((plain_root / "journal.json").read_text())
         memory = json.loads((memory_root / "journal.json").read_text())
         compare_output = output / "paired" / task.name
-        comparison = [sys.executable, "-m", "promolift.cli", "run", str(task.manifest),
+        comparison = [sys.executable, "-m", "couponevo.cli", "run", str(task.manifest),
                       "--budget-kind", task.budget.kind, "--budget", str(task.budget.value),
                       "--seed", str(task.seed), "--candidate", str(_champion(memory, memory_root)),
                       "--compare-candidate", str(_champion(plain, plain_root)),

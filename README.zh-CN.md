@@ -1,8 +1,8 @@
-# PromoLift
+# CouponEvo
 
 [English](README.md) | 简体中文
 
-PromoLift 面向优惠券等营销触达场景，是固定随机对照数据上的 Agent 主导算法实验项目。Agent 可改动[候选 uplift 模型](src/promolift/candidate.py)及候选预算策略；数据加载、预算约束和评测器独立于候选代码。
+CouponEvo 面向优惠券营销触达场景，名称中的 Evo 指候选算法随实验迭代。它是固定随机对照数据上的 Agent 主导算法实验项目。Agent 可改动[候选 uplift 模型](src/couponevo/candidate.py)及候选预算策略；数据加载、预算约束和评测器独立于候选代码。
 
 ## 状态与边界
 
@@ -13,7 +13,7 @@ Agent 能在固定任务中提出假设、修改 EconML/PyTorch 候选代码、�
 需要 Python 3.12+、pandas、NumPy、PyTorch 和 EconML；GPU 实验需要支持 CUDA 的 PyTorch。依赖版本由 `uv.lock` 固定，可先运行 `uv sync --frozen --python 3.12`。按[公开数据说明](examples/README.md)将 Starbucks 促销实验 CSV 下载到 `data/starbucks-training.csv`，再在项目根目录执行：
 
 ```bash
-uv run --frozen python -m promolift.cli run examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42
+uv run --frozen python -m couponevo.cli run examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42
 ```
 
 运行产物在 `runs/<run_id>/report.json`、`report.md`、`candidate.py` 和 `split_manifest.json`。切分文件以固定数据版本的行号记录三份样本；随机模型的 PyTorch 种子由执行器固定。默认只评估验证集；选定方案后可加 `--final` 使用测试集。
@@ -21,14 +21,14 @@ uv run --frozen python -m promolift.cli run examples/starbucks.json --budget-kin
 若本机已安装并登录 Codex CLI，可运行一次自动代码修改与复评。Agent 生成的候选代码必须在容器内执行，先在 Linux GPU 实验机准备与宿主机 Python 3.12 虚拟环境兼容的镜像：
 
 ```bash
-docker build -f Dockerfile.sandbox -t promolift-sandbox:py312-cuda128 .
-export SANDBOX_IMAGE="$(docker image inspect promolift-sandbox:py312-cuda128 --format '{{.Id}}')"
+docker build -f Dockerfile.sandbox -t couponevo-sandbox:py312-cuda128 .
+export SANDBOX_IMAGE="$(docker image inspect couponevo-sandbox:py312-cuda128 --format '{{.Id}}')"
 ```
 
-容器只挂载本轮训练样本、留出集特征、候选代码、只读运行时与框架源码；禁用网络、只读根文件系统并限制资源。宿主机虚拟环境默认取当前 Python 的 `sys.prefix`，也可用 `COUPON_LAB_SANDBOX_VENV` 指向 Linux Python 3.12 环境。镜像 ID 会写入实验身份和报告；修改镜像或依赖后应新开任务。
+容器只挂载本轮训练样本、留出集特征、候选代码、只读运行时与框架源码；禁用网络、只读根文件系统并限制资源。宿主机虚拟环境默认取当前 Python 的 `sys.prefix`，也可用 `COUPONEVO_SANDBOX_VENV` 指向 Linux Python 3.12 环境。镜像 ID 会写入实验身份和报告；修改镜像或依赖后应新开任务。
 
 ```bash
-python -m promolift.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 \
+python -m couponevo.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 \
   --device cuda --seed 42 --sandbox-image "$SANDBOX_IMAGE"
 ```
 
@@ -38,8 +38,8 @@ Agent 使用本机 Codex CLI 的默认模型；若该模型在当前 CLI 登录�
 
 ```bash
 mkdir -p runs
-cp src/promolift/candidate.py runs/my-candidate.py
-python -m promolift.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42 \
+cp src/couponevo/candidate.py runs/my-candidate.py
+python -m couponevo.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42 \
   --agent-provider deepseek --agent-model deepseek-flash --candidate runs/my-candidate.py \
   --sandbox-image "$SANDBOX_IMAGE"
 ```
@@ -49,7 +49,7 @@ Agent 会修改传入的候选文件。DeepSeek 的代码迭代和新报告解�
 可用[配置示例](examples/agent.deepseek.json)指定 OpenAI 兼容 Chat Completions 的 provider URL、模型、密钥环境变量及推理档位。设置 `AGENT_API_KEY` 后执行：
 
 ```bash
-python -m promolift.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda \
+python -m couponevo.cli agent examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda \
   --candidate runs/my-candidate.py --agent-config examples/agent.deepseek.json \
   --sandbox-image "$SANDBOX_IMAGE"
 ```
@@ -63,7 +63,7 @@ python -m promolift.cli agent examples/starbucks.json --budget-kind cost --budge
 `search` 让 API Agent 根据历史候选、评估指标和失败原因，自行选择 `draft`、`improve`、`debug` 或 `crossover`，提出假设并生成下一版完整候选代码。实验目标、数据、预算、评估器和最多迭代次数由命令固定。沿用上面的 `DEEPSEEK_API_KEY` 环境变量，在有 CUDA 的目标机执行：
 
 ```bash
-python -m promolift.cli search examples/starbucks.json --budget-kind cost --budget 0.03 \
+python -m couponevo.cli search examples/starbucks.json --budget-kind cost --budget 0.03 \
   --objective conversion --max-steps 3 --search-id starbucks-search-01 \
   --device cuda --agent-provider deepseek --agent-model deepseek-flash \
   --sandbox-image "$SANDBOX_IMAGE"
@@ -74,7 +74,7 @@ python -m promolift.cli search examples/starbucks.json --budget-kind cost --budg
 搜索分数只是反复使用验证反馈后的**探索性排序**。确定搜索结束后，使用相同任务参数冻结验证集冠军，并只在独立测试集比较一次：
 
 ```bash
-python -m promolift.cli finalize examples/starbucks.json --budget-kind cost --budget 0.03 \
+python -m couponevo.cli finalize examples/starbucks.json --budget-kind cost --budget 0.03 \
   --objective conversion --search-id starbucks-search-01 --device cuda --bootstrap-reps 2000 \
   --sandbox-image "$SANDBOX_IMAGE"
 ```
@@ -86,7 +86,7 @@ python -m promolift.cli finalize examples/starbucks.json --budget-kind cost --bu
 `examples/tasks/` 将数据 SHA-256、初始候选、目标、预算、随机种子和 Agent 最大提案数固定下来。下载 [Starbucks](examples/README.md) 与 [Hillstrom](examples/README.md) 后，可用同一 Agent 配置与镜像运行两阶段基准：
 
 ```bash
-python -m promolift.benchmark examples/tasks/starbucks-conversion.json \
+python -m couponevo.benchmark examples/tasks/starbucks-conversion.json \
   examples/tasks/hillstrom-revenue.json --agent-config examples/agent.deepseek.json \
   --sandbox-image "$SANDBOX_IMAGE" --device cuda --output runs/benchmark-01
 ```
@@ -114,7 +114,7 @@ uv run --frozen python -m unittest discover -s tests -v
 离线评估使用冻结随机试验的处理概率和独立验证集，输出逆概率加权的策略增量及 95% 正态近似区间，并给出相对随机策略的配对差值区间。Qini/AUUC 只用于诊断 uplift 排序。Agent 每轮还会在同一验证集上计算新旧策略逐用户差值的配对区间。选定候选后，用冻结的两份代码在未参与调参的测试集上做最终配对比较；可加 `--bootstrap-reps 2000` 输出用户级配对 bootstrap 百分位区间：
 
 ```bash
-python -m promolift.cli run examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42 \
+python -m couponevo.cli run examples/starbucks.json --budget-kind cost --budget 0.03 --device cuda --seed 42 \
   --candidate runs/new-candidate.py --compare-candidate runs/baseline-candidate.py --final --bootstrap-reps 2000
 ```
 

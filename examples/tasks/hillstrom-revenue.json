@@ -1,7 +1,7 @@
 {
   "name": "hillstrom-revenue",
   "manifest": "../hillstrom.json",
-  "candidate": "../../src/promolift/candidate.py",
+  "candidate": "../../src/couponevo/candidate.py",
   "budget": {"kind": "count", "value": 0.2},
   "objective": "revenue",
   "seed": 42,

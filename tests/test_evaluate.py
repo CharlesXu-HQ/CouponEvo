@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from promolift.candidate import fit_predict
-from promolift.evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
+from couponevo.candidate import fit_predict
+from couponevo.evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
 
 
 class EvaluationTests(unittest.TestCase):

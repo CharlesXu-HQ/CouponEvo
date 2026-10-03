@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from promolift.analysis import analyze_reports_deepseek
+from couponevo.analysis import analyze_reports_deepseek
 
 
 class FakeResponse:

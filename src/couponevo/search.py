@@ -47,7 +47,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
               compare_candidate: Path | None = None, feature_gaps: Path | None = None,
               final: bool = False, bootstrap_reps: int = 0,
               sandbox_image: str | None = None) -> dict:
-    command = [sys.executable, "-m", "promolift.cli", "run", str(manifest),
+    command = [sys.executable, "-m", "couponevo.cli", "run", str(manifest),
                "--budget-kind", budget.kind, "--budget", str(budget.value),
                "--seed", str(seed), "--output", str(output),
                "--candidate", str(candidate), "--device", device]

@@ -11,9 +11,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from promolift.agent import revise_candidate, revise_candidate_deepseek
-from promolift.cli import main, run_experiment
-from promolift.evaluate import Budget
+from couponevo.agent import revise_candidate, revise_candidate_deepseek
+from couponevo.cli import main, run_experiment
+from couponevo.evaluate import Budget
 
 
 class RunTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class RunTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.manifest))
 
     def test_agent_requires_isolated_execution(self):
-        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count",
+        args = ["couponevo", "search", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--objective", "active", "--search-id", "isolated",
                 "--agent-provider", "deepseek"]
         with patch.object(sys, "argv", args), self.assertRaises(SystemExit) as error:
@@ -70,7 +70,7 @@ class RunTests(unittest.TestCase):
             def choose(self, *_args):
                 return None
 
-        with patch("promolift.cli.DockerSandbox", FakeSandbox):
+        with patch("couponevo.cli.DockerSandbox", FakeSandbox):
             run_experiment(self.path, Budget("count", 0.2), seed=7,
                            output=self.root / "runs", sandbox_image="test-image")
         self.assertEqual(list(seen["train"]), ["x", "__treatment", "active", "margin", "cost"])
@@ -91,7 +91,7 @@ class RunTests(unittest.TestCase):
                 result.attrs["cuda_peak_bytes"] = 0
                 return result
 
-        with patch("promolift.cli.DockerSandbox", FakeSandbox):
+        with patch("couponevo.cli.DockerSandbox", FakeSandbox):
             with self.assertRaisesRegex(ValueError, "allocate a CUDA tensor"):
                 run_experiment(self.path, Budget("count", 0.2), seed=7,
                                output=self.root / "runs", sandbox_image="test-image", device="cuda")
@@ -107,7 +107,7 @@ class RunTests(unittest.TestCase):
         self.assertIn("cost", report1["policies"]["active"])
         self.assertTrue((self.root / "runs" / report1["run_id"] / "report.md").exists())
         self.assertEqual((self.root / "runs" / report1["run_id"] / "candidate.py").read_bytes(),
-                         Path(__file__).resolve().parents[1].joinpath("src/promolift/candidate.py").read_bytes())
+                         Path(__file__).resolve().parents[1].joinpath("src/couponevo/candidate.py").read_bytes())
         self.assertEqual(report1["data_validation"]["feature_timing"], "declared_only")
         self.assertEqual(set(report1["ranking_diagnostics"]), {"active", "gross_margin"})
         self.assertTrue(np.isfinite(report1["ranking_diagnostics"]["active"]["qini"]))
@@ -130,7 +130,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual((artifact / "feature_gaps.md").read_text(), gap.read_text())
 
     def test_same_candidate_has_zero_paired_difference_on_final_holdout(self):
-        candidate = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        candidate = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         report = run_experiment(self.path, Budget("count", 0.2), seed=11,
                                 output=self.root / "runs", final=True,
                                 compare_candidate_path=candidate)
@@ -141,7 +141,7 @@ class RunTests(unittest.TestCase):
         self.assertTrue((self.root / "runs" / report["run_id"] / "baseline_candidate.py").exists())
 
     def test_candidate_can_change_budget_policy_without_changing_model(self):
-        baseline = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        baseline = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate = self.root / "policy_candidate.py"
         candidate.write_text(baseline.read_text() + "\n"
                              "def choose_policy(scores, costs, budget_kind, budget_value):\n"
@@ -156,7 +156,7 @@ class RunTests(unittest.TestCase):
                             report["baseline_policy_sha256"]["active"])
 
     def test_stochastic_candidate_policy_repeats_with_same_seed(self):
-        baseline = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        baseline = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate = self.root / "policy_candidate.py"
         candidate.write_text(baseline.read_text() + "\n"
                              "def choose_policy(scores, costs, budget_kind, budget_value):\n"
@@ -170,7 +170,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(first["policy_sha256"], second["policy_sha256"])
 
     def test_run_id_changes_if_candidate_decisions_change(self):
-        baseline = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        baseline = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate = self.root / "policy_candidate.py"
         candidate.write_text(baseline.read_text() + "\nimport os\n"
                              "def choose_policy(scores, costs, budget_kind, budget_value):\n"
@@ -186,7 +186,7 @@ class RunTests(unittest.TestCase):
         self.assertNotEqual(first["run_id"], second["run_id"])
 
     def test_candidate_policy_cannot_exceed_budget(self):
-        baseline = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        baseline = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate = self.root / "policy_candidate.py"
         candidate.write_text(baseline.read_text() + "\n"
                              "def choose_policy(scores, costs, budget_kind, budget_value):\n"
@@ -196,7 +196,7 @@ class RunTests(unittest.TestCase):
                            output=self.root / "runs", candidate_path=candidate)
 
     def test_candidate_policy_rejects_invalid_predicted_cost(self):
-        baseline = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        baseline = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate = self.root / "policy_candidate.py"
         candidate.write_text(baseline.read_text().replace(
             'result["expected_cost"] = np.maximum(0, cost_model.predict(x_target))',
@@ -217,7 +217,7 @@ class RunTests(unittest.TestCase):
         self.assertIn("net", report["paired_vs_random"]["net_margin"])
 
     def test_final_report_can_bootstrap_paired_intervals(self):
-        baseline = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        baseline = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         report = run_experiment(self.path, Budget("count", 0.2), seed=11,
                                 output=self.root / "runs", final=True,
                                 compare_candidate_path=baseline, bootstrap_reps=100)
@@ -232,7 +232,7 @@ class RunTests(unittest.TestCase):
                                  "gross_margin_uplift": values,
                                  "expected_cost": values})
 
-        with patch("promolift.cli._candidate_function", return_value=candidate):
+        with patch("couponevo.cli._candidate_function", return_value=candidate):
             first = run_experiment(self.path, Budget("count", 0.2), seed=11, output=self.root / "runs")
             second = run_experiment(self.path, Budget("count", 0.2), seed=11, output=self.root / "runs")
         self.assertEqual(first["prediction_sha256"], second["prediction_sha256"])
@@ -246,7 +246,7 @@ class RunTests(unittest.TestCase):
                                  "gross_margin_uplift": [0.5] * len(target),
                                  "expected_cost": [0.1] * len(target)})
 
-        with patch("promolift.cli._candidate_function", return_value=candidate):
+        with patch("couponevo.cli._candidate_function", return_value=candidate):
             run_experiment(self.path, Budget("count", 0.2), seed=11, output=self.root / "runs")
         self.assertEqual(observed["columns"], ["x"])
 
@@ -256,7 +256,7 @@ class RunTests(unittest.TestCase):
                                  "gross_margin_uplift": [0.5] * len(target),
                                  "expected_cost": [0.1] * len(target)})
 
-        with patch("promolift.cli._candidate_function", return_value=cpu_candidate):
+        with patch("couponevo.cli._candidate_function", return_value=cpu_candidate):
             with self.assertRaisesRegex(ValueError, "CUDA"):
                 run_experiment(self.path, Budget("count", 0.2), seed=11,
                                output=self.root / "runs", device="cuda")
@@ -274,7 +274,7 @@ class RunTests(unittest.TestCase):
         self.manifest["outcomes"] = {"revenue": "margin", "coupon_cost": "cost"}
         self.manifest.pop("margin_includes_coupon_cost")
         self.save_manifest()
-        candidate = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        candidate = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         report = run_experiment(self.path, Budget("count", 0.2), seed=11,
                                 output=self.root / "runs", compare_candidate_path=candidate)
         self.assertIn("net_revenue", report["policies"])
@@ -308,7 +308,7 @@ class RunTests(unittest.TestCase):
             (scratch / "feature_gaps.md").write_text("- 建议字段：历史活跃度")
             return subprocess.CompletedProcess(args, 0, "", "")
 
-        with patch("promolift.agent.subprocess.run", side_effect=fake_codex):
+        with patch("couponevo.agent.subprocess.run", side_effect=fake_codex):
             revise_candidate(candidate, report, feature_gaps_path=self.root / "feature_gaps.md",
                              codex_bin="fake-codex")
         self.assertIn("# revised", candidate.read_text())
@@ -317,7 +317,7 @@ class RunTests(unittest.TestCase):
 
     def test_agent_revision_can_be_reevaluated_without_dataset_changes(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
         first = run_experiment(self.path, Budget("count", 0.2), seed=11,
                                output=self.root / "runs", candidate_path=candidate)
@@ -330,7 +330,7 @@ class RunTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, "", "")
 
         notes = self.root / "feature_gaps.md"
-        with patch("promolift.agent.subprocess.run", side_effect=fake_codex):
+        with patch("couponevo.agent.subprocess.run", side_effect=fake_codex):
             revise_candidate(candidate, self.root / "runs" / first["run_id"] / "report.md",
                              feature_gaps_path=notes, codex_bin="fake-codex")
         second = run_experiment(self.path, Budget("count", 0.2), seed=11,
@@ -401,7 +401,7 @@ class RunTests(unittest.TestCase):
 
     def test_agent_cannot_remove_econml_learner(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
         report = self.root / "report.md"
         report.write_text("Report")
@@ -426,18 +426,18 @@ class RunTests(unittest.TestCase):
 
     def test_agent_command_rejects_code_only_change_and_restores_candidate(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
         original = candidate.read_bytes()
 
         def fake_revision(path, *_args, **_kwargs):
             path.write_bytes(path.read_bytes() + b"\n# no prediction change\n")
 
-        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+        args = ["couponevo", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
                 str(self.root / "runs"), "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
-                patch("promolift.cli.revise_candidate_deepseek", side_effect=fake_revision):
+                patch("couponevo.cli.revise_candidate_deepseek", side_effect=fake_revision):
             with self.assertRaisesRegex(ValueError, "predictions and policies unchanged"):
                 main()
             self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
@@ -445,7 +445,7 @@ class RunTests(unittest.TestCase):
 
     def test_agent_command_accepts_policy_only_revision(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
 
         def fake_revision(path, *_args, **_kwargs):
@@ -455,12 +455,12 @@ class RunTests(unittest.TestCase):
                             "    chosen[0] = True\n"
                             "    return chosen\n")
 
-        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+        args = ["couponevo", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
                 str(self.root / "runs"), "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
-                patch("promolift.cli.revise_candidate_deepseek", side_effect=fake_revision), \
-                patch("promolift.cli.analyze_reports_deepseek") as analyze:
+                patch("couponevo.cli.revise_candidate_deepseek", side_effect=fake_revision), \
+                patch("couponevo.cli.analyze_reports_deepseek") as analyze:
             main()
         prior, revised = analyze.call_args.args
         self.assertEqual(prior["prediction_sha256"], revised["prediction_sha256"])
@@ -468,7 +468,7 @@ class RunTests(unittest.TestCase):
 
     def test_deepseek_agent_analyzes_revised_report(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
 
         def fake_revision(path, *_args, **_kwargs):
@@ -476,12 +476,12 @@ class RunTests(unittest.TestCase):
                 'result[f"{name}_uplift"] = learner.effect(x_target)',
                 'result[f"{name}_uplift"] = learner.effect(x_target) + 0.1'))
 
-        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+        args = ["couponevo", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
                 str(self.root / "runs"), "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
-                patch("promolift.cli.revise_candidate_deepseek", side_effect=fake_revision), \
-                patch("promolift.cli.analyze_reports_deepseek") as analyze:
+                patch("couponevo.cli.revise_candidate_deepseek", side_effect=fake_revision), \
+                patch("couponevo.cli.analyze_reports_deepseek") as analyze:
             main()
         self.assertEqual(analyze.call_count, 1)
         prior, revised = analyze.call_args.args
@@ -491,7 +491,7 @@ class RunTests(unittest.TestCase):
 
     def test_provider_config_routes_model_and_secret_to_both_agent_steps(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
         config = self.root / "agent.json"
         config.write_text(json.dumps({
@@ -505,12 +505,12 @@ class RunTests(unittest.TestCase):
                 'result[f"{name}_uplift"] = learner.effect(x_target)',
                 'result[f"{name}_uplift"] = learner.effect(x_target) + 0.1'))
 
-        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+        args = ["couponevo", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
                 str(self.root / "runs"), "--agent-config", str(config), "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"TEST_AGENT_KEY": "test-key"}), \
-                patch("promolift.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
-                patch("promolift.cli.analyze_reports_deepseek") as analyze:
+                patch("couponevo.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
+                patch("couponevo.cli.analyze_reports_deepseek") as analyze:
             main()
             self.assertNotIn("TEST_AGENT_KEY", os.environ)
         revision_provider = revise.call_args.kwargs["provider"]
@@ -528,7 +528,7 @@ class RunTests(unittest.TestCase):
 
     def test_direct_deepseek_url_enables_thinking(self):
         candidate = self.root / "candidate.py"
-        source = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
 
         def fake_revision(path, *_args, **_kwargs):
@@ -536,13 +536,13 @@ class RunTests(unittest.TestCase):
                 'result[f"{name}_uplift"] = learner.effect(x_target)',
                 'result[f"{name}_uplift"] = learner.effect(x_target) + 0.1'))
 
-        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+        args = ["couponevo", "agent", str(self.path), "--budget-kind", "count",
                 "--budget", "0.2", "--candidate", str(candidate), "--output",
                 str(self.root / "runs"), "--agent-provider-url", "https://api.deepseek.com",
                 "--agent-model", "deepseek-flash", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"AGENT_API_KEY": "test-key"}), \
-                patch("promolift.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
-                patch("promolift.cli.analyze_reports_deepseek"):
+                patch("couponevo.cli.revise_candidate_deepseek", side_effect=fake_revision) as revise, \
+                patch("couponevo.cli.analyze_reports_deepseek"):
             main()
         provider = revise.call_args.kwargs["provider"]
         self.assertEqual(provider.thinking, "enabled")
@@ -550,7 +550,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(provider.review_effort, "max")
 
     def test_search_command_runs_agent_steps_and_resumes(self):
-        candidate = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        candidate = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         calls = []
 
         def propose(_provider, context):
@@ -559,13 +559,13 @@ class RunTests(unittest.TestCase):
             return {"operator": "draft", "parent_ids": [], "hypothesis": f"search idea {len(calls)}",
                     "candidate_py": source + f"\n# search idea {len(calls)}\n"}
 
-        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+        args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
                 "--candidate", str(candidate), "--objective", "active", "--max-steps", "1",
                 "--search-id", "test-search", "--output", str(self.root / "runs"),
                 "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
-                patch("promolift.cli.propose_search_candidate", side_effect=propose), \
-                patch("promolift.cli.analyze_reports_deepseek", return_value={"high": {}}):
+                patch("couponevo.cli.propose_search_candidate", side_effect=propose), \
+                patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
             self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
         journal_path = self.root / "runs/test-search/journal.json"
@@ -579,32 +579,32 @@ class RunTests(unittest.TestCase):
         resumed_args[resumed_args.index("--max-steps") + 1] = "2"
         resumed_args.append("--resume")
         with patch.object(sys, "argv", resumed_args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
-                patch("promolift.cli.propose_search_candidate", side_effect=propose), \
-                patch("promolift.cli.analyze_reports_deepseek", return_value={"high": {}}):
+                patch("couponevo.cli.propose_search_candidate", side_effect=propose), \
+                patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
         self.assertEqual(len(json.loads(journal_path.read_text())["steps"]), 2)
         self.assertEqual(len(calls), 2)
         self.assertIn("analysis", calls[1]["history"][-1])
 
     def test_search_rejects_final_holdout(self):
-        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+        args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
                 "--objective", "active", "--final", "--agent-provider", "deepseek"]
         with patch.object(sys, "argv", args), self.assertRaises(SystemExit):
             main()
 
     def test_finalize_command_evaluates_frozen_search(self):
-        candidate = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
-        args = ["coupon-lab", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+        candidate = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
+        args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
                 "--candidate", str(candidate), "--objective", "active", "--max-steps", "1",
                 "--search-id", "finalize-trial", "--output", str(self.root / "runs"),
                 "--agent-provider", "deepseek", "--unsafe-local-execution"]
         proposal = {"operator": "draft", "parent_ids": [], "hypothesis": "candidate",
                     "candidate_py": candidate.read_text() + "\n# experiment\n"}
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
-                patch("promolift.cli.propose_search_candidate", return_value=proposal), \
-                patch("promolift.cli.analyze_reports_deepseek", return_value={"high": {}}):
+                patch("couponevo.cli.propose_search_candidate", return_value=proposal), \
+                patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
-        final_args = ["coupon-lab", "finalize", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+        final_args = ["couponevo", "finalize", str(self.path), "--budget-kind", "count", "--budget", "0.2",
                       "--candidate", str(candidate), "--objective", "active", "--search-id", "finalize-trial",
                       "--output", str(self.root / "runs"), "--bootstrap-reps", "100"]
         with patch.object(sys, "argv", final_args):

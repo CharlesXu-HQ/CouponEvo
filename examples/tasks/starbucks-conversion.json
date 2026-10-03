@@ -1,7 +1,7 @@
 {
   "name": "starbucks-conversion",
   "manifest": "../starbucks.json",
-  "candidate": "../../src/promolift/candidate.py",
+  "candidate": "../../src/couponevo/candidate.py",
   "budget": {"kind": "cost", "value": 0.03},
   "objective": "conversion",
   "seed": 42,

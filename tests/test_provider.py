@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from promolift.provider import ApiProvider, request_json
+from couponevo.provider import ApiProvider, request_json
 
 
 class FakeResponse:

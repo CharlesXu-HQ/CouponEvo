@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from promolift.evaluate import Budget
-from promolift.search import run_search
+from couponevo.evaluate import Budget
+from couponevo.search import run_search
 
 
 class SearchTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class SearchTests(unittest.TestCase):
                           "probability": 0.5, "probability_source": "protocol",
                           "probability_reference": "test-protocol"},
         }))
-        self.seed = Path(__file__).resolve().parents[1] / "src/promolift/candidate.py"
+        self.seed = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         self.kwargs = dict(manifest_path=self.manifest, budget=Budget("count", 0.2),
                            seed=7, output=self.root / "runs", initial_candidate=self.seed,
                            objective="active", search_id="agent-search", device="cpu")

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from promolift.experience import load_experience
+from couponevo.experience import load_experience
 
 
 class ExperienceTests(unittest.TestCase):

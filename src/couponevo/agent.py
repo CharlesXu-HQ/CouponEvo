@@ -29,7 +29,7 @@ def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_pa
                      codex_bin: str = "codex", model: str | None = None) -> str:
     candidate_path, report_path = Path(candidate_path), Path(report_path)
     before = candidate_path.read_bytes()
-    with tempfile.TemporaryDirectory(prefix="coupon-lab-agent-") as temp:
+    with tempfile.TemporaryDirectory(prefix="couponevo-agent-") as temp:
         scratch = Path(temp)
         shutil.copy2(candidate_path, scratch / "candidate.py")
         shutil.copy2(report_path, scratch / "report.md")

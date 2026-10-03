@@ -11,7 +11,7 @@ flowchart LR
     F --> G[One final holdout comparison]
 ```
 
-`src/promolift/data.py` validates the randomized data and declared pre-treatment features. `search.py` keeps the objective, budget, seed, manifest, evaluator, and candidate snapshots fixed for a resumable search. `agent.py` chooses among draft, improve, debug, and crossover proposals; `sandbox.py` executes generated code in a restricted Docker container. `evaluate.py` and `cli.py` produce policy estimates, cost checks, uncertainty intervals, and reports independently of the proposed candidate.
+`src/couponevo/data.py` validates the randomized data and declared pre-treatment features. `search.py` keeps the objective, budget, seed, manifest, evaluator, and candidate snapshots fixed for a resumable search. `agent.py` chooses among draft, improve, debug, and crossover proposals; `sandbox.py` executes generated code in a restricted Docker container. `evaluate.py` and `cli.py` produce policy estimates, cost checks, uncertainty intervals, and reports independently of the proposed candidate.
 
 The journal contains within-search history. `experience.py` may summarize **validation-only** steps from earlier finalized searches when the raw dataset SHA-256, manifest SHA-256, objective, budget, split seed, evaluator hash, and strict-data setting match. A changed CSV or manifest does not inherit that experience. No final holdout metric enters Agent context. A new run may intentionally start without reused experience by omitting `--experience-dir`.
 
