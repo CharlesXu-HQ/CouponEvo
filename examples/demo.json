@@ -1,0 +1,18 @@
+{
+  "dataset": "demo.csv",
+  "unit_id": "user_id",
+  "treatment": {
+    "column": "assigned_coupon",
+    "control": 0,
+    "treated": 1,
+    "probability": 0.5
+  },
+  "features": ["recency", "recent_sessions"],
+  "feature_timing": "pre_treatment",
+  "outcomes": {
+    "active": "active_7d",
+    "gross_margin": "gross_margin_7d",
+    "coupon_cost": "coupon_cost_7d"
+  },
+  "margin_includes_coupon_cost": false
+}

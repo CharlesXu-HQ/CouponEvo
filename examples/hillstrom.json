@@ -1,0 +1,16 @@
+{
+  "dataset": "hillstrom.csv",
+  "treatment": {
+    "column": "segment",
+    "control": "No E-Mail",
+    "treated": "Mens E-Mail",
+    "probability": 0.5
+  },
+  "features": ["recency", "history_segment", "history", "mens", "womens", "zip_code", "newbie", "channel"],
+  "feature_timing": "pre_treatment",
+  "outcomes": {
+    "visit": "visit",
+    "conversion": "conversion",
+    "revenue": "spend"
+  }
+}
