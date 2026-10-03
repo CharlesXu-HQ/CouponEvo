@@ -61,6 +61,7 @@ def _render(report: dict) -> str:
              f"干预前特征：{', '.join(report['features'])}", "",
              "结果字段：" + "；".join(f"{name}={column}" for name, column in report["outcome_columns"].items()), "",
              f"切分：{report['holdout']}；预算：{report['budget']['kind']} = {report['budget']['value']}", "",
+             f"模型设备：{report['model_device']}", "",
              "## 策略结果", ""]
     if report.get("agent"):
         agent = report["agent"]
@@ -76,7 +77,7 @@ def _render(report: dict) -> str:
         if "cost" in result:
             lines.append(f"- 成本/单位：{result['cost']['mean']:.6g}（95% 区间 {result['cost']['lower']:.6g} 至 {result['cost']['upper']:.6g}）")
         if "assumed_cost" in result:
-            lines.append(f"- 假设成本/单位：{result['assumed_cost']:.6g}")
+            lines.append(f"- 假设成本/全体评估用户：{result['assumed_cost']:.6g}")
         if "net" in result:
             lines.append(f"- {result['net_label']}/单位：{result['net']['mean']:.6g}（95% 区间 {result['net']['lower']:.6g} 至 {result['net']['upper']:.6g}）")
         if "delta_vs_random" in result:
@@ -90,7 +91,8 @@ def _render(report: dict) -> str:
 
 def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                    candidate_path: Path | None = None, final: bool = False,
-                   feature_gaps: Path | None = None, agent_info: dict | None = None) -> dict:
+                   feature_gaps: Path | None = None, agent_info: dict | None = None,
+                   device: str = "cpu") -> dict:
     manifest_path, output = Path(manifest_path), Path(output)
     candidate_path = Path(candidate_path or Path(__file__).with_name("candidate.py"))
     manifest_bytes, candidate_bytes = manifest_path.read_bytes(), candidate_path.read_bytes()
@@ -100,13 +102,18 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
     target = parts.test if final else parts.validation
     outcome_cols = {name: column for name, column in data.outcomes.items() if name != "coupon_cost"}
     cost_col = data.outcomes.get("coupon_cost")
-    predictions = _candidate_function(candidate_path)(parts.train, target[data.features].copy(), features=data.features,
-                                                        treatment="__treatment", outcomes=outcome_cols, cost=cost_col)
+    candidate_args = {"features": data.features, "treatment": "__treatment",
+                      "outcomes": outcome_cols, "cost": cost_col}
+    if device == "cuda":
+        candidate_args["device"] = "cuda"
+    predictions = _candidate_function(candidate_path)(parts.train, target[data.features].copy(), **candidate_args)
     expected_columns = {f"{name}_uplift" for name in outcome_cols}
     if cost_col:
         expected_columns.add("expected_cost")
     if not isinstance(predictions, pd.DataFrame) or not expected_columns <= set(predictions) or len(predictions) != len(target):
         raise ValueError("candidate returned invalid prediction columns or row count")
+    if device == "cuda" and predictions.attrs.get("model_device") != "cuda":
+        raise ValueError("candidate did not confirm CUDA model training and prediction")
     prediction_sha = _sha(predictions[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
     if cost_col:
         expected_cost = predictions["expected_cost"].to_numpy(dtype=float)
@@ -187,12 +194,14 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
     if expected_cost is None:
         notes.append("无成本字段；预算按选中人数比例计算。")
     elif not cost_col:
-        notes.append("成本来自固定每次发券费用假设，不是实际核销成本。")
+        notes.append(f"成本来自每位选中用户 {data.manifest['fixed_send_cost']} 的固定发券费用假设；"
+                     "策略成本按全体评估用户平均，不是实际核销成本。")
     if budget.kind == "cost":
         notes.append("发券选择使用预测成本；报告中的观测成本及区间可能超过预算。")
     identity = {"dataset": data.source_sha256, "manifest": _sha(manifest_bytes),
                 "candidate": _sha(candidate_bytes), "split": _split_sha(parts),
                 "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed, "final": final,
+                "model_device": device,
                 "feature_gaps": _sha(gap_bytes) if gap_bytes is not None else None}
     if agent_info is not None:
         identity["agent"] = agent_info
@@ -201,6 +210,7 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
               "manifest_sha256": identity["manifest"], "candidate_sha256": identity["candidate"],
               "prediction_sha256": prediction_sha,
               "split_sha256": identity["split"], "budget": identity["budget"], "seed": seed,
+              "model_device": device,
               "holdout": "test" if final else "validation", "holdout_size": len(target),
               "features": data.features, "outcome_columns": data.outcomes,
               "available_outcomes": list(outcome_cols), "unavailable_objectives": unavailable,
@@ -232,6 +242,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=Path("runs"))
     parser.add_argument("--candidate", type=Path, default=Path(__file__).with_name("candidate.py"))
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="model training and prediction device")
     parser.add_argument("--final", action="store_true", help="evaluate the final test split")
     parser.add_argument("--feature-gaps", type=Path, help="existing human or Agent feature suggestions")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
@@ -278,7 +289,7 @@ def main() -> None:
     try:
         if args.command == "agent":
             prior = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
-                                   candidate_path=args.candidate)
+                                   candidate_path=args.candidate, device=args.device)
             args.feature_gaps = args.output / "agent-feature-gaps.md"
             args.feature_gaps.unlink(missing_ok=True)
             prior_report = args.output / prior["run_id"] / "report.md"
@@ -301,7 +312,8 @@ def main() -> None:
             agent_info = None
         report = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
                                 candidate_path=args.candidate, final=args.final,
-                                feature_gaps=args.feature_gaps, agent_info=agent_info)
+                                feature_gaps=args.feature_gaps, agent_info=agent_info,
+                                device=args.device)
         if args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"]:
             raise ValueError("Agent revision left predictions unchanged")
         if api_mode:

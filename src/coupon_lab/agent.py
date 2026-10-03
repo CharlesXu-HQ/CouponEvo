@@ -22,8 +22,10 @@ def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_pa
         shutil.copy2(report_path, scratch / "report.md")
         prompt = (
             "Improve candidate.py based on report.md for the next offline uplift experiment. "
-            "Edit candidate.py and keep the fit_predict signature and return columns. "
-            "Use only pandas and numpy. If the evidence suggests missing pre-treatment user features, "
+            "Edit candidate.py and keep the fit_predict signature, device argument, CUDA computation, "
+            "model_device result attribute, and return columns. Use only pandas, numpy and torch. "
+            "All model fitting and prediction must use PyTorch on the requested device, including CPU. "
+            "If the evidence suggests missing pre-treatment user features, "
             "write feature_gaps.md with proposed field, source, timing, evidence, leakage risk, and "
             "a future dataset validation plan. Do not change report.md or other files."
         )
@@ -59,7 +61,9 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
         "Return one JSON object with candidate_py (complete Python source) and "
         "feature_gaps_md (empty string if none). Make one small, testable change to "
         "the uplift algorithm or pre-treatment feature engineering based on the report. "
-        "Preserve fit_predict and its required return columns. Use only pandas and numpy. "
+        "Preserve fit_predict, its device argument, CUDA computation, model_device result attribute, "
+        "and required return columns. Use only pandas, numpy and torch. "
+        "All model fitting and prediction must use PyTorch on the requested device, including CPU. "
         "Create engineered features before building the feature matrix so predictions "
         "actually change. The target contains only pre-treatment features; never use "
         "target treatment or outcomes. Suggest a missing field only with a concrete "
@@ -77,7 +81,7 @@ def revise_candidate_deepseek(candidate_path: Path, report_path: Path, *, api_ke
                 revised = revised.split("\n", 1)[1].rsplit("```", 1)[0].strip()
             revised += "\n"
             tree = ast.parse(revised, filename=str(candidate_path))
-            allowed = {"__future__", "numpy", "pandas"}
+            allowed = {"__future__", "numpy", "pandas", "torch"}
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import) and any(alias.name.split(".")[0] not in allowed for alias in node.names):
                     raise ValueError("Agent candidate imports an unsupported module")

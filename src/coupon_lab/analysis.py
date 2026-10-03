@@ -69,6 +69,8 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
         "(string). Use Chinese. Distinguish point estimates from uncertainty and do "
         "not claim a model improvement from overlapping confidence intervals. "
         "Check treatment timing for leakage and distinguish actual from assumed cost. "
+        "Policy effects and costs are averaged over all eligible holdout users; "
+        "fixed_send_cost is the assumed cost per selected treated user. "
         "Flag suspicion only with concrete evidence; state uncertainty explicitly."
     )
     messages = [{"role": "system", "content": instruction},

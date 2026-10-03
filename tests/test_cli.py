@@ -75,6 +75,17 @@ class RunTests(unittest.TestCase):
             run_experiment(self.path, Budget("count", 0.2), seed=11, output=self.root / "runs")
         self.assertEqual(observed["columns"], ["x"])
 
+    def test_cuda_run_rejects_candidate_without_cuda_confirmation(self):
+        def cpu_candidate(train, target, **kwargs):
+            return pd.DataFrame({"active_uplift": [0.1] * len(target),
+                                 "gross_margin_uplift": [0.5] * len(target),
+                                 "expected_cost": [0.1] * len(target)})
+
+        with patch("coupon_lab.cli._candidate_function", return_value=cpu_candidate):
+            with self.assertRaisesRegex(ValueError, "CUDA"):
+                run_experiment(self.path, Budget("count", 0.2), seed=11,
+                               output=self.root / "runs", device="cuda")
+
     def test_conversion_only_reports_no_profit(self):
         self.manifest["outcomes"] = {"conversion": "active"}
         self.manifest.pop("margin_includes_coupon_cost")
@@ -95,6 +106,8 @@ class RunTests(unittest.TestCase):
         self.assertEqual(entry["net_label"], "假设增量净收益")
         self.assertAlmostEqual(entry["net"]["mean"],
                                entry["effects"]["gross_margin"]["mean"] - entry["assumed_cost"])
+        self.assertTrue(any("每位选中用户 1.0" in note and "全体评估用户平均" in note
+                            for note in report["notes"]))
 
     def test_agent_revision_only_copies_candidate(self):
         candidate = self.root / "candidate.py"

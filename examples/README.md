@@ -1,5 +1,5 @@
-# 示例数据
+# 公开数据
 
-`demo.csv` 是固定种子的**合成测试数据**，只用于验证项目能运行和复现；其结果不能作为实际营销效果。
+`starbucks.json` 映射 [Udacity 发布的 Starbucks 促销实验 training.csv](https://github.com/udacity/DSND_Term2/blob/master/portfolio_exercises/Experiments/data/training.csv)。将原始 CSV 保存为项目根目录 `data/starbucks-training.csv`。它有 84,534 行、随机促销与不促销两组、七个干预前匿名特征和购买结果；`fixed_send_cost: 0.15` 是课程题设的每次促销费用，不是用户级实际核销成本。没有 App 活跃、用户级收入或毛利，因而不能从该数据得出增量净利润。
 
-`hillstrom.json` 将公开的 [Hillstrom 邮件随机实验](https://blog.minethatdata.com/2008/03/minethatdata-e-mail-analytics-and-data.html) 映射为单一邮件与不发送的二元比较。先从原作者提供的 [CSV](https://www.minethatdata.com/Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv) 下载并保存为本目录的 `hillstrom.csv`。选择其中两个原始等概率组后，条件处理概率为 0.5。此数据没有用户 ID、毛利和邮件实际成本；报告中的 `visit` 是网站访问，`spend` 是销售额，均不等同于 App 活跃或利润。
+`data/` 已加入 `.gitignore`，公开数据不会随代码提交。Criteo 广告增量数据只用于 GPU 模型训练与预测检查：其[公开数据卡](https://huggingface.co/datasets/criteo/criteo-uplift)说明发布版经非均匀抽样，原始实验的处理概率不可从公开文件可靠恢复，因此本项目不对它输出逆概率加权的因果收益报告。

@@ -1,0 +1,14 @@
+{
+  "dataset": "../data/starbucks-training.csv",
+  "unit_id": "ID",
+  "treatment": {
+    "column": "Promotion",
+    "control": "No",
+    "treated": "Yes",
+    "probability": 0.5
+  },
+  "features": ["V1", "V2", "V3", "V4", "V5", "V6", "V7"],
+  "feature_timing": "pre_treatment",
+  "outcomes": {"conversion": "purchase"},
+  "fixed_send_cost": 0.15
+}
