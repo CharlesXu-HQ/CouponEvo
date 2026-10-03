@@ -6,12 +6,13 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from .agent import revise_candidate
+from .agent import revise_candidate, revise_candidate_deepseek
 from .data import load_dataset, split_dataset
 from .evaluate import Budget, estimate_cost, evaluate_policy, select_policy
 
@@ -53,10 +54,14 @@ def _render(report: dict) -> str:
     lines = ["# Coupon Uplift 实验报告", "", f"运行 ID：`{report['run_id']}`", "",
              f"数据 SHA-256：`{report['dataset_sha256']}`", "",
              f"候选代码 SHA-256：`{report['candidate_sha256']}`", "",
+             f"预测 SHA-256：`{report['prediction_sha256']}`", "",
              f"干预前特征：{', '.join(report['features'])}", "",
              "结果字段：" + "；".join(f"{name}={column}" for name, column in report["outcome_columns"].items()), "",
              f"切分：{report['holdout']}；预算：{report['budget']['kind']} = {report['budget']['value']}", "",
              "## 策略结果", ""]
+    if report.get("agent"):
+        agent = report["agent"]
+        lines[2:2] = [f"Agent：{agent['provider']} / {agent['model']}；前一轮：`{agent['previous_run_id']}`", ""]
     for name, result in report["policies"].items():
         lines.append(f"### {name}")
         lines.append(f"选中 {result['selected_count']} / {report['holdout_size']} 个单位。")
@@ -79,7 +84,7 @@ def _render(report: dict) -> str:
 
 def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                    candidate_path: Path | None = None, final: bool = False,
-                   feature_gaps: Path | None = None) -> dict:
+                   feature_gaps: Path | None = None, agent_info: dict | None = None) -> dict:
     manifest_path, output = Path(manifest_path), Path(output)
     candidate_path = Path(candidate_path or Path(__file__).with_name("candidate.py"))
     manifest_bytes, candidate_bytes = manifest_path.read_bytes(), candidate_path.read_bytes()
@@ -92,8 +97,11 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
     predictions = _candidate_function(candidate_path)(parts.train, target[data.features].copy(), features=data.features,
                                                         treatment="__treatment", outcomes=outcome_cols, cost=cost_col)
     expected_columns = {f"{name}_uplift" for name in outcome_cols}
+    if cost_col:
+        expected_columns.add("expected_cost")
     if not isinstance(predictions, pd.DataFrame) or not expected_columns <= set(predictions) or len(predictions) != len(target):
         raise ValueError("candidate returned invalid prediction columns or row count")
+    prediction_sha = _sha(predictions[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
     if cost_col:
         expected_cost = predictions["expected_cost"].to_numpy(dtype=float)
     elif data.manifest.get("fixed_send_cost") is not None:
@@ -180,15 +188,20 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
                 "candidate": _sha(candidate_bytes), "split": _split_sha(parts),
                 "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed, "final": final,
                 "feature_gaps": _sha(gap_bytes) if gap_bytes is not None else None}
+    if agent_info is not None:
+        identity["agent"] = agent_info
     run_id = _sha(json.dumps(identity, sort_keys=True).encode())[:16]
     report = {"run_id": run_id, "dataset_sha256": data.source_sha256,
               "manifest_sha256": identity["manifest"], "candidate_sha256": identity["candidate"],
+              "prediction_sha256": prediction_sha,
               "split_sha256": identity["split"], "budget": identity["budget"], "seed": seed,
               "holdout": "test" if final else "validation", "holdout_size": len(target),
               "features": data.features, "outcome_columns": data.outcomes,
               "available_outcomes": list(outcome_cols), "unavailable_objectives": unavailable,
               "policies": results, "notes": notes,
               "feature_gaps": gap_bytes.decode("utf-8") if gap_bytes is not None else None}
+    if agent_info is not None:
+        report["agent"] = agent_info
     if (_sha(data.dataset_path.read_bytes()) != data.source_sha256 or
             _sha(manifest_path.read_bytes()) != identity["manifest"] or
             _sha(candidate_path.read_bytes()) != identity["candidate"] or
@@ -215,25 +228,42 @@ def main() -> None:
     parser.add_argument("--candidate", type=Path, default=Path(__file__).with_name("candidate.py"))
     parser.add_argument("--final", action="store_true", help="evaluate the final test split")
     parser.add_argument("--feature-gaps", type=Path, help="existing human or Agent feature suggestions")
-    parser.add_argument("--agent-model", help="Codex CLI model override for the agent command")
+    parser.add_argument("--agent-provider", choices=["codex", "deepseek"], default="codex")
+    parser.add_argument("--agent-model", help="Agent model override; DeepSeek defaults to deepseek-flash")
     args = parser.parse_args()
     if args.command == "agent" and args.final:
         parser.error("agent revisions must use validation; run --final separately after selection")
+    api_key = os.environ.pop("DEEPSEEK_API_KEY", None) if args.command == "agent" and args.agent_provider == "deepseek" else None
+    if args.command == "agent" and args.agent_provider == "deepseek" and not api_key:
+        parser.error("DEEPSEEK_API_KEY is required for the DeepSeek agent")
     budget = Budget(args.budget_kind, args.budget)
     original_candidate = args.candidate.read_bytes() if args.command == "agent" else None
-    if args.command == "agent":
-        prior = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
-                               candidate_path=args.candidate)
-        args.feature_gaps = args.output / "agent-feature-gaps.md"
-        args.feature_gaps.unlink(missing_ok=True)
-        revise_candidate(args.candidate, args.output / prior["run_id"] / "report.md",
-                         feature_gaps_path=args.feature_gaps, model=args.agent_model)
-        if not args.feature_gaps.exists():
-            args.feature_gaps = None
     try:
+        if args.command == "agent":
+            prior = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
+                                   candidate_path=args.candidate)
+            args.feature_gaps = args.output / "agent-feature-gaps.md"
+            args.feature_gaps.unlink(missing_ok=True)
+            prior_report = args.output / prior["run_id"] / "report.md"
+            model = args.agent_model or ("deepseek-flash" if args.agent_provider == "deepseek" else "default")
+            if args.agent_provider == "deepseek":
+                revise_candidate_deepseek(args.candidate, prior_report, api_key=api_key,
+                                          feature_gaps_path=args.feature_gaps, model=model)
+                api_key = None
+            else:
+                revise_candidate(args.candidate, prior_report,
+                                 feature_gaps_path=args.feature_gaps, model=args.agent_model)
+            if not args.feature_gaps.exists():
+                args.feature_gaps = None
+            agent_info = {"provider": args.agent_provider, "model": model,
+                          "previous_run_id": prior["run_id"]}
+        else:
+            agent_info = None
         report = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,
                                 candidate_path=args.candidate, final=args.final,
-                                feature_gaps=args.feature_gaps)
+                                feature_gaps=args.feature_gaps, agent_info=agent_info)
+        if args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"]:
+            raise ValueError("Agent revision left predictions unchanged")
     except Exception:
         if original_candidate is not None:
             args.candidate.write_bytes(original_candidate)

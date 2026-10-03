@@ -21,7 +21,18 @@ python -m coupon_lab.cli agent examples/demo.json --budget-kind cost --budget 0.
 
 Agent 使用本机 Codex CLI 的默认模型；若该模型在当前 CLI 登录账户中不可用，可加 `--agent-model MODEL` 指定可用模型。
 
-这个命令先生成报告，再让 Codex 在临时工作目录中读取报告、修改一份 `candidate.py`，检查语法后复制回项目，并重新实验。若发现缺少关键的干预前用户特征，Agent 可另写 `feature_gaps.md`，记录建议字段、来源、时点、证据、泄漏风险和下一版验证方法；该文件会进入新一轮报告，当前固定 dataset 不变。数据和评测代码不进入 Agent 的临时工作目录。自动修改可能产生性能更差的候选；各轮报告和代码快照可供比较。
+也可以让 DeepSeek V4.1 Flash 充当修改候选算法的 Agent。先在当前终端设置 `DEEPSEEK_API_KEY`，再执行：
+
+```bash
+mkdir -p runs
+cp src/coupon_lab/candidate.py runs/my-candidate.py
+python -m coupon_lab.cli agent examples/demo.json --budget-kind cost --budget 0.25 --seed 42 \
+  --agent-provider deepseek --agent-model deepseek-flash --candidate runs/my-candidate.py
+```
+
+Agent 会修改传入的候选文件。报告记录 Agent 提供方、模型、前一轮运行 ID 和预测 SHA-256。若候选代码变化但验证集预测完全相同，本轮会报错并恢复候选文件。密钥从环境变量读取，不写入报告或候选代码。
+
+这个命令先生成报告，再让 Agent 读取候选代码和报告、修改 `candidate.py`，检查语法后重新实验。Codex 使用临时工作目录；DeepSeek API 只接收候选代码和报告。若发现缺少关键的干预前用户特征，Agent 可另写 `feature_gaps.md`，记录建议字段、来源、时点、证据、泄漏风险和下一版验证方法；该文件会进入新一轮报告，当前固定 dataset 不变。自动修改可能产生性能更差的候选；各轮报告和代码快照可供比较。
 
 ## Dataset manifest
 

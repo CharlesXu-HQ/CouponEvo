@@ -1,5 +1,7 @@
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,8 +9,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from coupon_lab.agent import revise_candidate
-from coupon_lab.cli import run_experiment
+from coupon_lab.agent import revise_candidate, revise_candidate_deepseek
+from coupon_lab.cli import main, run_experiment
 from coupon_lab.evaluate import Budget
 
 
@@ -42,6 +44,7 @@ class RunTests(unittest.TestCase):
         report1 = run_experiment(self.path, Budget("cost", 0.25), seed=11, output=self.root / "runs")
         report2 = run_experiment(self.path, Budget("cost", 0.25), seed=11, output=self.root / "runs")
         self.assertEqual(report1, report2)
+        self.assertEqual(report1["prediction_sha256"], report2["prediction_sha256"])
         self.assertIn("active", report1["policies"])
         self.assertIn("net_margin", report1["policies"])
         self.assertIn("random", report1["policies"])
@@ -138,6 +141,83 @@ class RunTests(unittest.TestCase):
         self.assertNotEqual(first["run_id"], second["run_id"])
         self.assertEqual(first["dataset_sha256"], second["dataset_sha256"])
         self.assertIn("发券前登录天数", (self.root / "runs" / second["run_id"] / "report.md").read_text())
+        self.assertEqual(first["prediction_sha256"], second["prediction_sha256"])
+
+    def test_deepseek_revision_parses_json_and_feature_notes(self):
+        candidate = self.root / "candidate.py"
+        candidate.write_text("def fit_predict(*args, **kwargs):\n    return None\n")
+        report = self.root / "report.md"
+        report.write_text("Improve uplift estimate")
+        payload = {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps({
+            "candidate_py": "```python\ndef fit_predict(*args, **kwargs):\n    return 1\n```",
+            "feature_gaps_md": "建议字段：历史活跃度",
+        })}}]}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                return json.dumps(payload).encode()
+
+        with patch("coupon_lab.agent.urllib.request.urlopen", return_value=FakeResponse()) as call:
+            revise_candidate_deepseek(candidate, report, api_key="test-key",
+                                      feature_gaps_path=self.root / "feature_gaps.md")
+        self.assertIn("return 1", candidate.read_text())
+        self.assertIn("历史活跃度", (self.root / "feature_gaps.md").read_text())
+        request = call.call_args.args[0]
+        body = json.loads(request.data)
+        self.assertEqual(body["model"], "deepseek-flash")
+        self.assertEqual(body["thinking"], {"type": "disabled"})
+
+    def test_deepseek_repairs_invalid_python_once(self):
+        candidate = self.root / "candidate.py"
+        candidate.write_text("def fit_predict(*args, **kwargs):\n    return None\n")
+        report = self.root / "report.md"
+        report.write_text("Improve uplift estimate")
+
+        class FakeResponse:
+            def __init__(self, code):
+                self.code = code
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": json.dumps({"candidate_py": self.code})}}]}).encode()
+
+        responses = [FakeResponse("def fit_predict(:"),
+                     FakeResponse("def fit_predict(*args, **kwargs):\n    return 1\n")]
+        with patch("coupon_lab.agent.urllib.request.urlopen", side_effect=responses) as call:
+            revise_candidate_deepseek(candidate, report, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
+        self.assertIn("return 1", candidate.read_text())
+
+    def test_agent_command_rejects_code_only_change_and_restores_candidate(self):
+        candidate = self.root / "candidate.py"
+        source = Path(__file__).resolve().parents[1] / "src/coupon_lab/candidate.py"
+        candidate.write_bytes(source.read_bytes())
+        original = candidate.read_bytes()
+
+        def fake_revision(path, *_args, **_kwargs):
+            path.write_bytes(path.read_bytes() + b"\n# no prediction change\n")
+
+        args = ["coupon-lab", "agent", str(self.path), "--budget-kind", "count",
+                "--budget", "0.2", "--candidate", str(candidate), "--output",
+                str(self.root / "runs"), "--agent-provider", "deepseek"]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("coupon_lab.cli.revise_candidate_deepseek", side_effect=fake_revision):
+            with self.assertRaisesRegex(ValueError, "predictions unchanged"):
+                main()
+            self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
+        self.assertEqual(candidate.read_bytes(), original)
 
 
 if __name__ == "__main__":
