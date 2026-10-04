@@ -5,13 +5,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
 
+import couponevo.harness as harness_module
 from couponevo.data import load_dataset, split_dataset
 from couponevo.evaluate import Budget
-from couponevo.harness import build_harness_context, validate_research
+from couponevo.harness import build_harness_context, refresh_model_evo, validate_research
 from couponevo.search import _task, run_search
 
 
@@ -56,6 +58,72 @@ class ModelEvoIntegrationTests(unittest.TestCase):
 
     def context(self):
         return build_harness_context(self.mode, self.manifest, 7, False, objective="active")
+
+    def test_refresh_requires_clean_checkout_and_local_package(self):
+        with patch("couponevo.harness.subprocess.run",
+                   return_value=SimpleNamespace(stdout=" M README.md\n")) as git:
+            with self.assertRaisesRegex(RuntimeError, "uncommitted changes"):
+                refresh_model_evo(self.mode)
+        self.assertEqual(len(git.call_args_list), 1)
+        self.assertEqual(git.call_args.args[0][-2:], ["status", "--porcelain"])
+
+        revision = harness_module._model_evo_revision(harness_module._model_evo_package())
+
+        def clean_git(command, **_):
+            return SimpleNamespace(stdout=revision + "\n" if command[-2:] == ["rev-parse", "HEAD"]
+                                   else "")
+
+        with patch("couponevo.harness.subprocess.run",
+                   side_effect=clean_git) as git, \
+                patch("couponevo.harness._model_evo_package",
+                      return_value=SimpleNamespace(__file__="/tmp/other/model_evo_harness/__init__.py")):
+            with self.assertRaisesRegex(RuntimeError, "submodule checkout"):
+                refresh_model_evo(self.mode)
+        self.assertTrue(any("update" in call.args[0] and "--remote" in call.args[0]
+                            for call in git.call_args_list))
+
+    def test_refresh_rejects_loaded_old_code_again_on_retry(self):
+        package = harness_module._model_evo_package()
+        old_commit = harness_module._model_evo_revision(package)
+        self.assertIsNotNone(old_commit)
+        current = old_commit
+
+        def git_run(command, **_):
+            nonlocal current
+            if "--remote" in command:
+                current = "different-commit"
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                return SimpleNamespace(stdout=current + "\n")
+            return SimpleNamespace(stdout="")
+
+        with patch("couponevo.harness.subprocess.run", side_effect=git_run) as git:
+            with self.assertRaisesRegex(RuntimeError, "changed while loaded"):
+                refresh_model_evo(self.mode)
+            updates_after_first = sum("update" in call.args[0] for call in git.call_args_list)
+            self.assertEqual(updates_after_first, 1)
+            with self.assertRaisesRegex(RuntimeError, "changed while loaded"):
+                refresh_model_evo(self.mode)
+            self.assertEqual(sum("update" in call.args[0] for call in git.call_args_list),
+                             updates_after_first)
+
+    def test_new_search_refreshes_once_but_resume_and_existing_root_do_not(self):
+        with patch("couponevo.search.refresh_model_evo") as refresh, \
+                patch("couponevo.search._evaluate", return_value=self.report):
+            run_search(**self.kwargs, max_steps=1,
+                       proposer=lambda _: {"action": "stop", "reason": "done"})
+            refresh.assert_called_once_with(self.mode)
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                run_search(**self.kwargs, max_steps=1,
+                           proposer=lambda _: {"action": "stop", "reason": "done"})
+            refresh.assert_called_once_with(self.mode)
+
+        self.kwargs["search_id"] = "resumable"
+        with patch("couponevo.search.refresh_model_evo") as refresh, \
+                patch("couponevo.search._evaluate", return_value=self.report):
+            run_search(**self.kwargs, max_steps=1, proposer=lambda _: self.proposal)
+            run_search(**self.kwargs, max_steps=2, proposer=lambda _: self.proposal,
+                       resume=True)
+            refresh.assert_called_once_with(self.mode)
 
     def test_snapshot_exposes_only_proven_capabilities_and_training_statistics(self):
         before = self.context()
@@ -115,11 +183,12 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                             harness_path=self.mode)
             self.assertNotEqual(task, changed)
         with patch("couponevo.harness._model_evo_revision", return_value="new-commit"):
-            changed = _task(self.manifest, self.kwargs["budget"], 7, self.seed, "active", "cpu", False,
-                            harness_path=self.mode)
-            self.assertNotEqual(task, changed)
+            with self.assertRaisesRegex(RuntimeError, "changed while loaded"):
+                _task(self.manifest, self.kwargs["budget"], 7, self.seed, "active", "cpu", False,
+                      harness_path=self.mode)
 
-        with patch("couponevo.search._evaluate", return_value=self.report):
+        with patch("couponevo.search.refresh_model_evo"), \
+                patch("couponevo.search._evaluate", return_value=self.report):
             journal = run_search(**self.kwargs, max_steps=1, proposer=lambda _: self.proposal)
             with patch("model_evo_harness.catalog_digest", return_value="changed"):
                 with self.assertRaisesRegex(ValueError, "changed"):
@@ -139,6 +208,7 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                       "lesson": "Try another mechanism", "next_direction": "Feature interaction"}
         with patch("sys.argv", args), patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("couponevo.search._evaluate", return_value=self.report), \
+                patch("couponevo.search.refresh_model_evo"), \
                 patch("couponevo.cli.propose_search_candidate", side_effect=[
                     self.proposal, {"action": "stop", "reason": "Budget exhausted"}]) as propose, \
                 patch("couponevo.cli.reflect_search_step", return_value=reflection), \

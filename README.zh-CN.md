@@ -58,7 +58,7 @@ Starbucks 不包含 App 促活标签、实际券核销成本或用户级毛利�
 
 在 `search`、`--resume` 和 `finalize` 命令中加入 `--harness harnesses/coupon-research.json`，即可启用[研究插件](docs/harness.md)。插件提供分类但非穷举的实验指南、训练分区字段概况，并要求提案说明机制、备选方向、实际输入和可证伪预期。这份设计会进入反思与数据集绑定的经验。复制 JSON 就能扩展自己的方向，无须修改执行器。指南参考 [FunRec](https://github.com/datawhalechina/fun-rec)，并按发券的因果与预算约束适配；所列模型是研究线索，不代表已经全部集成为模型库。
 
-独立的 [ModelEvoHarness](https://github.com/CharlesXu-HQ/ModelEvoHarness) 通过 `third_party/model-evo-harness` Git submodule 接入。每次开启新搜索前，将 submodule 更新到最新 `main`，从该检出目录安装到主机环境；本次搜索、续跑和最终评估期间固定同一版本。使用 `--harness model-evo` 启用它。CouponEvo 仍负责候选执行和评估，并把外部源码提交及 catalog／实现摘要记录到搜索中。参见[安装说明与 GPU A/B 计划](docs/model-evo-harness.md)。该计划尚未执行，不代表已有性能提升。
+独立的 [ModelEvoHarness](https://github.com/CharlesXu-HQ/ModelEvoHarness) 通过 `third_party/model-evo-harness` Git submodule 接入。克隆后先初始化 submodule，并从该检出目录安装包。每次新建 `search --harness model-evo` 都会在加载包前自动更新到最新 `main`；`--resume` 和 `finalize` 保持搜索已记录的版本。CouponEvo 仍负责候选执行和评估，并把外部源码提交及 catalog／实现摘要记录到搜索中。参见[接入说明](docs/model-evo-harness.md)和[全量数据 GPU A/B 报告](docs/research/model-evo-harness-starbucks-ab-2026-10-04.md)。诊断性配对测试的区间跨过零，尚不能证明性能提升。
 
 ## Dataset manifest
 

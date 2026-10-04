@@ -14,7 +14,8 @@ from typing import Callable
 from .data import load_dataset
 from .evaluate import Budget
 from .experience import load_experience
-from .harness import build_harness_context, harness_identity, research_history, validate_research
+from .harness import (build_harness_context, harness_identity, refresh_model_evo,
+                      research_history, validate_research)
 
 
 def _sha(data: bytes) -> str:
@@ -211,9 +212,13 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
         raise ValueError("search_id must be a safe directory name")
     manifest_path, initial_candidate, output = (Path(path).resolve() for path in
                                                 (manifest_path, initial_candidate, output))
+    root = output / search_id
+    if not resume:
+        if root.exists():
+            raise ValueError("search directory already exists; use resume")
+        refresh_model_evo(harness_path)
     task = _task(manifest_path, budget, seed, initial_candidate, objective, device, strict_data,
                  sandbox_image, experience_dir, harness_path)
-    root = output / search_id
     journal_path = root / "journal.json"
     if resume:
         if not journal_path.is_file():

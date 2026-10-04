@@ -1,0 +1,549 @@
+{
+  "task": {
+    "dataset": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+    "manifest": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+    "framework": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+    "initial_candidate": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+    "agent_workflow": "4174b1aa1deafe9d38ca1f4d88ab9179c758c5b80f46552364af87fb3ee0bc45",
+    "harness": null,
+    "budget": {
+      "kind": "cost",
+      "value": 0.03
+    },
+    "seed": 42,
+    "objective": "conversion",
+    "device": "cuda",
+    "strict_data": false,
+    "sandbox_image": "coupon-lab-sandbox:py312-cuda128",
+    "experience_dir": null
+  },
+  "agent": {
+    "provider_url": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "thinking": "enabled",
+    "iteration_effort": "high",
+    "review_effort": "max"
+  },
+  "harness": null,
+  "experience": [],
+  "baseline": {
+    "id": "seed",
+    "status": "evaluated",
+    "candidate": "steps/seed/candidate.py",
+    "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+    "score": 0.0033122375347489205,
+    "report": {
+      "run_id": "bb06aad5f861c57a",
+      "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+      "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+      "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+      "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+      "prediction_sha256": "f5c9eddeca667c8d4a32a4931246a5e3417ac0c4892d13447fa1cae23e4affee",
+      "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+      "budget": {
+        "kind": "cost",
+        "value": 0.03
+      },
+      "seed": 42,
+      "model_device": "cuda",
+      "cuda_peak_bytes": 35390976,
+      "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+      "holdout": "validation",
+      "holdout_size": 16907,
+      "features": [
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6",
+        "V7"
+      ],
+      "outcome_columns": {
+        "conversion": "purchase"
+      },
+      "data_validation": {
+        "feature_timing": "declared_only",
+        "assignment_probability": "documented"
+      },
+      "available_outcomes": [
+        "conversion"
+      ],
+      "unavailable_objectives": [
+        "active",
+        "net_margin"
+      ],
+      "policies": {
+        "conversion": {
+          "selected_count": 3381,
+          "effects": {
+            "conversion": {
+              "mean": 0.0033122375347489205,
+              "lower": 0.0017066163250949017,
+              "upper": 0.004917858744402939,
+              "se": 0.0008191944947214382
+            }
+          },
+          "predicted_cost_per_unit": 0.02999645117406991,
+          "assumed_cost": 0.02999645117406991,
+          "delta_vs_random": {
+            "conversion": 0.002011001360383273
+          }
+        },
+        "random": {
+          "selected_count": 3381,
+          "effects": {
+            "conversion": {
+              "mean": 0.0013012361743656475,
+              "lower": -0.00028821876140729076,
+              "upper": 0.0028906911101385857,
+              "se": 0.0008109463958025196
+            }
+          },
+          "predicted_cost_per_unit": 0.029996451174069908,
+          "assumed_cost": 0.029996451174069908
+        }
+      },
+      "ranking_diagnostics": {
+        "conversion": {
+          "auuc": 0.006851530381242987,
+          "qini": 0.0025337921663024293
+        }
+      },
+      "policy_sha256": {
+        "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b",
+        "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+      },
+      "paired_vs_random": {
+        "conversion": {
+          "conversion": {
+            "mean": 0.0020110013603832732,
+            "lower": 0.00011335906060234492,
+            "upper": 0.003908643660164202,
+            "se": 0.0009681848468270042
+          }
+        }
+      },
+      "notes": [
+        "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+        "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+        "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+        "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+        "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+        "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。"
+      ],
+      "feature_gaps": null
+    }
+  },
+  "steps": [
+    {
+      "id": "step-001",
+      "status": "failed",
+      "candidate": "steps/step-001/candidate.py",
+      "candidate_sha256": "4e37f9fba760409ce6f389843800fd98f278cad09587b28c5c7ed557913ddc5a",
+      "operator": "improve",
+      "parent_ids": [
+        "seed"
+      ],
+      "hypothesis": "The seed's linear T-learner may miss nonlinearities and treatment-effect heterogeneity. Replacing it with an X-learner that uses a nonlinear PyTorch MLP for CATE estimation and a doubly robust propensity adjustment should improve conversion uplift ranking and policy value.",
+      "expected_result": "On validation, the selected conversion policy's mean effect should exceed the seed's 0.00331 and its lower bound should exceed 0.00171, with AUUC > 0.00685 or Qini > 0.00253, while predicted cost per unit remains <= 0.03.",
+      "approach": "Use EconML XLearner with PyTorch ridge outcome models and a small PyTorch MLP CATE model. Keep the same preprocessing, cost model, and output schema as the seed. This tests whether nonlinear CATE modeling improves the conversion policy.",
+      "error": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/home/charles/couponevo-model-evo-submodule-20261004/src/couponevo/cli.py\", line 594, in <module>\n    main()\n  File \"/home/charles/couponevo-model-evo-submodule-20261004/src/couponevo/cli.py\", line 571, in main\n    report = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/charles/couponevo-model-evo-submodule-20261004/src/couponevo/cli.py\", line 245, in run_experiment\n    predictions = (sandbox.predict(candidate_path, candidate_train, candidate_target, candidate_args, seed, device)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/charles/couponevo-model-evo-submodule-20261004/src/couponevo/sandbox.py\", line 68, in predict\n    response, raw = self._run(candidate, {\"operation\": \"predict\", \"args\": args,\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/charles/couponevo-model-evo-submodule-20261004/src/couponevo/sandbox.py\", line 61, in _run\n    raise RuntimeError(f\"sandbox candidate failed: {(result.stderr or result.stdout)[-2000:]}\")\nRuntimeError: sandbox candidate failed: Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/opt/coupon-src/couponevo/sandbox_worker.py\", line 62, in <module>\n    main()\n  File \"/opt/coupon-src/couponevo/sandbox_worker.py\", line 40, in main\n    result = candidate.fit_predict(train, target, **job[\"args\"])\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/input/candidate.py\", line 115, in fit_predict\n    learner = XLearner(\n              ^^^^^^^^^\nTypeError: XLearner.__init__() got an unexpected keyword argument 'random_state'",
+      "reflection": {
+        "verdict": "invalid",
+        "evidence": "Research is null. The candidate failed before producing any validation metrics with TypeError: XLearner.__init__() got an unexpected keyword argument 'random_state'. Therefore there is no actual objective score, paired policy metric, AUUC/Qini, cost check, or high/max analysis. The expected result comparing mean effect > 0.00331, lower bound > 0.00171, AUUC > 0.00685 or Qini > 0.00253, and cost <= 0.03 could not be evaluated. The baseline score is 0.0033122375347489205.",
+        "lesson": "For this dataset and task, this failed run provides no evidence for or against the hypothesis that nonlinear CATE modeling improves the conversion policy. The failure is an implementation/API incompatibility in the candidate's XLearner constructor call, not a demonstrated modeling limitation, and should not be generalized to X-learner or nonlinear CATE approaches.",
+        "next_direction": "Check the installed EconML version and XLearner signature, remove or replace the unsupported random_state argument, and rerun the same offline validation with the same preprocessing, cost model, and output schema. If the API remains incompatible, use an alternative nonlinear CATE implementation that conforms to the installed library."
+      }
+    },
+    {
+      "id": "step-002",
+      "status": "evaluated",
+      "candidate": "steps/step-002/candidate.py",
+      "candidate_sha256": "37b6726cfae004df17e60601c42c5530b69b9f3313ab9b45a06df726c28eb6d8",
+      "operator": "debug",
+      "parent_ids": [
+        "step-001"
+      ],
+      "hypothesis": "The prior candidate failed only because EconML XLearner in this environment rejects the random_state constructor argument. Removing that argument while keeping the same nonlinear X-learner mechanism should allow evaluation, and if nonlinear CATE improves conversion targeting the selected policy should beat the linear seed.",
+      "expected_result": "Validation selected conversion policy mean effect > 0.003312 and lower bound > 0.001707, with AUUC > 0.006852 or Qini > 0.002534, while predicted cost per unit remains <= 0.03.",
+      "approach": "Debug step-001 by removing the unsupported XLearner random_state argument and keeping PyTorch ridge outcome models plus a PyTorch MLP CATE model, with the same preprocessing, propensity model, cost model, and output schema as the seed and prior candidate.",
+      "score": 0.0024841781510616906,
+      "report": {
+        "run_id": "60b9369ac9a87ed1",
+        "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+        "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+        "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+        "candidate_sha256": "37b6726cfae004df17e60601c42c5530b69b9f3313ab9b45a06df726c28eb6d8",
+        "prediction_sha256": "ff184c1d168fc1349e7a3dda56db0c31e2d9b8f8db50d7e0af0aab254b769575",
+        "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+        "budget": {
+          "kind": "cost",
+          "value": 0.03
+        },
+        "seed": 42,
+        "model_device": "cuda",
+        "cuda_peak_bytes": 78020096,
+        "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+        "holdout": "validation",
+        "holdout_size": 16907,
+        "features": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "outcome_columns": {
+          "conversion": "purchase"
+        },
+        "data_validation": {
+          "feature_timing": "declared_only",
+          "assignment_probability": "documented"
+        },
+        "available_outcomes": [
+          "conversion"
+        ],
+        "unavailable_objectives": [
+          "active",
+          "net_margin"
+        ],
+        "policies": {
+          "conversion": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0024841781510616906,
+                "lower": 0.0009292414611116076,
+                "upper": 0.004039114841011774,
+                "se": 0.0007933350458928996
+              }
+            },
+            "predicted_cost_per_unit": 0.029996451174069908,
+            "assumed_cost": 0.029996451174069908,
+            "delta_vs_random": {
+              "conversion": 0.0011829419766960431
+            }
+          },
+          "random": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0013012361743656475,
+                "lower": -0.00028821876140729076,
+                "upper": 0.0028906911101385857,
+                "se": 0.0008109463958025196
+              }
+            },
+            "predicted_cost_per_unit": 0.029996451174069908,
+            "assumed_cost": 0.029996451174069908
+          }
+        },
+        "ranking_diagnostics": {
+          "conversion": {
+            "auuc": 0.005029651405848735,
+            "qini": 0.0007119131909081779
+          }
+        },
+        "policy_sha256": {
+          "conversion": "b3099c2d2c96b7b74c960d4dc2593cdacdd054da20bf320c6a0d5b8206f66720",
+          "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+        },
+        "paired_vs_random": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.0011829419766960431,
+              "lower": -0.0007289701429683128,
+              "upper": 0.003094854096360399,
+              "se": 0.0009754653671756918
+            }
+          }
+        },
+        "notes": [
+          "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+          "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+          "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+          "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+          "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+          "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+          "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。"
+        ],
+        "feature_gaps": "Current conversion experiment is testable with existing fields. For future data changes, row-level pre-treatment feature timestamps and verified pre-treatment engagement/activity fields would strengthen temporal validity; current declared-only timing does not block this offline conversion debug.\n",
+        "compare_candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+        "compare_prediction_sha256": "f5c9eddeca667c8d4a32a4931246a5e3417ac0c4892d13447fa1cae23e4affee",
+        "paired_vs_baseline": {
+          "conversion": {
+            "conversion": {
+              "mean": -0.0008280593836872301,
+              "lower": -0.002809062538623722,
+              "upper": 0.0011529437712492617,
+              "se": 0.001010715895375761
+            }
+          }
+        },
+        "baseline_policy_sha256": {
+          "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b"
+        }
+      },
+      "analysis": {
+        "model": "deepseek-flash",
+        "provider_url": "https://api.deepseek.com",
+        "initial_effort": "high",
+        "review_effort": "max",
+        "run_id": "60b9369ac9a87ed1",
+        "high": {
+          "summary": "对比 after 候选与 before 基线：after 相对 before 的 paired_vs_baseline 转化差值 mean=-0.000828，95% CI [-0.002809, 0.001153]，包含 0，不能认为新候选有提升。after 策略相对随机配对差值 mean=0.001183，95% CI [-0.000729, 0.003095] 包含 0；AUUC/Qini 也低于 before。before 与 after 各自区间有重叠，但不应据此判断优劣。特征时点仅 manifest 声明，未逐行验证，存在时序怀疑；成本为固定发券假设而非实际核销成本，且无净边际目标。验证集可用于多轮选择，不可单独作为最终提升证据。",
+          "recommendation": "不建议将 after 候选作为提升方案上线；保留 before/基线或暂缓部署，先补充逐行特征时点、随机分组概率执行核对、实际核销/成本与净边际数据，并用独立测试集/最终留出集复核。只有在最终评估中 paired_vs_baseline 区间稳定为正且成本-收益清楚后再考虑采用。",
+          "uplift_anomaly": {
+            "flag": true,
+            "evidence": "after 相对 before 的 paired_vs_baseline 转化差值 mean=-0.000828059，95% CI [-0.002809063, 0.001152944]，包含 0，点估计为负；after 的 policy vs random 差值 mean=0.001182942，95% CI [-0.000728970, 0.003094854] 也包含 0；同时 after 的 AUUC=0.005030、Qini=0.000712，均低于 before 的 AUUC=0.006852、Qini=0.002534。验证集可多轮选择，不能据此作最终提升结论，但新候选未显示出可靠提升，存在退化/无异常改善的异常信号。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "manifest 中 feature_timing='declared_only'，仅有声明，缺少逐行特征时点证据；无法确认 V1–V7 均在分配前测量。候选代码仅将 V1–V7 作为 X，treatment 作为 XLearner 的 arm，outcome/cost 作为 y，未直接把 treatment/outcome 放进特征，但也未提供特征时序证据；assignment_probability='documented' 仍需人工核对引用。按规则应触发独立审查，但没有已证实泄漏，故 confirmed=false。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "成本来自每位选中用户 0.15 的固定发券费用假设，按全体合格 holdout 用户平均后约为 0.03；报告中的 predicted_cost_per_unit/assumed_cost≈0.029996，并非实际核销成本。缺乏实际成本、核销率与 net_margin（unavailable_objectives 含 net_margin），且发券选择使用预测成本，观测成本及区间可能超过预算。因此无法判断成本-转化权衡是否清楚。"
+          }
+        },
+        "review_reasons": [
+          "uplift_anomaly",
+          "feature_leakage",
+          "cost_tradeoff_unclear"
+        ],
+        "max": {
+          "summary": "独立审计结论：主要支持初次分析。before/after 使用同一 validation 留出集，新候选对旧候选应以 paired_vs_baseline 为准。after 相对 before 的 conversion 配对差值 mean=-0.000828059，95% CI [-0.002809063, 0.001152944]，包含 0，因此不能声称 after 有提升；点估计为负，且 after 的 policy-vs-random 配对差值 mean=0.001182942，95% CI [-0.000728970, 0.003094854] 包含 0，AUUC/Qini 也低于 before，故保留 uplift_anomaly 审查。但验证集可用于多轮选择，不能据此确认最终退化，也不能用 before/after 各自区间重叠来判优劣。特征时点仅 manifest 声明为 declared_only，无逐行证据；候选代码未发现 treatment/outcome 直接进入 V1–V7 特征，故 feature_leakage 是怀疑而非确认。成本为固定发券假设 0.15/选中用户，按全体 eligible 用户平均约 0.029996，预算 0.03，不是实际核销成本；active/net_margin 不可用，成本收益不清楚。",
+          "recommendation": "不建议将 after 作为已证实的提升方案上线。当前证据下可暂缓部署或保留旧版/基线，并在独立最终测试留出集复核：以 paired_vs_baseline 区间稳定为正且成本-净边际清楚为采用条件。上线前应补充 V1–V7 逐行干预前时间证据、随机化执行/分配概率核对、实际核销成本与净边际数据；仅 conversion 可用，不能把访问/点击/转化称为促活。",
+          "uplift_anomaly": {
+            "flag": true,
+            "evidence": "确认审查触发（怀疑，非最终确认）：after 相对 before 的 paired_vs_baseline conversion 差值 mean=-0.000828059，95% CI [-0.002809063, 0.001152944]，包含 0 且点估计为负；after 的 policy vs random 配对差值 mean=0.001182942，95% CI [-0.000728970, 0.003094854] 包含 0，而 before 同项 95% CI [0.000113359, 0.003908644] 不含 0；after AUUC=0.005030、Qini=0.000712 低于 before AUUC=0.006852、Qini=0.002534。证据支持“新候选未显示可靠提升/可能退化”的异常信号；但验证集多轮选择，paired_vs_baseline 区间包含 0，不能确认最终退化或最终优劣。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "确认怀疑但不确认泄漏：data_validation.feature_timing='declared_only'，缺少 V1–V7 的逐行测量时间证据，无法证明均在分配前测量；assignment_probability='documented' 也仅表示有来源引用，试验执行尚需人工核对。候选代码只用 V1–V7 作为 X，treatment 作为 XLearner 的 arm，conversion/cost 作为 y/标签，未发现 treatment/outcome 直接进入特征；cost 模型仅在 arm==1 上拟合 cost 标签，若 cost 为干预后实际核销变量则其时序也需核实，但当前报告按 assumed cost 处理，无具体证据证明特征泄漏。因此 flag=true（触发独立审查），confirmed=false；缺失的是逐行特征/成本时点证据和随机化执行核对。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "确认审查触发：成本来自每位选中用户 0.15 的固定发券费用假设，策略成本按全体 eligible holdout 用户平均，predicted_cost_per_unit=assumed_cost≈0.029996，预算 0.03，并非实际核销成本；缺少 actual redemption、核销率与 net_margin（unavailable_objectives 包含 net_margin）。发券选择使用预测成本，实际成本及区间可能超预算。按点估计，after 每增量转化假设成本约 12.1，before 约 9.1，但无净边际，无法判断成本-转化净权衡是否清楚。"
+          }
+        }
+      },
+      "eligibility": "eligible",
+      "reflection": {
+        "verdict": "inconsistent",
+        "evidence": "The tested claim was that removing the unsupported XLearner random_state argument would allow evaluation and that the resulting nonlinear X-learner would beat the linear seed. Evaluation succeeded (status=evaluated, error=null), so the constructor-debug component is supported. The improvement expectation is not met: policy conversion mean=0.002484178, below baseline 0.003312238; lower=0.000929241, below expected 0.001707; AUUC=0.005029651, below expected 0.006852; Qini=0.000711913, below expected 0.002534. Cost 0.029996451 is <=0.03. Paired vs random conversion mean=0.001182942, 95% CI [-0.000728970, 0.003094854], includes 0; paired vs baseline mean=-0.000828059, 95% CI [-0.002809063, 0.001152944], includes 0. High/max analysis flags uplift_anomaly (negative point estimate and lower ranking metrics), feature_leakage as suspected but not confirmed (feature_timing=declared_only, no row-level pre-treatment timestamps; no direct treatment/outcome features found), and cost_tradeoff_unclear (fixed coupon-cost assumption, no actual redemption or net_margin). Research is null, so no research mechanism, comparison, or falsification claim was available to assess. Because expected thresholds fail and baseline improvement is not demonstrated, the result is inconsistent with expected_result, although the validation set is exploratory and the CI includes zero, so proven final degradation is not established. Alternatives remaining untested include different CATE architectures/hyperparameters, different propensity/cost models, policy-threshold variants, verified pre-treatment feature timing, randomized assignment execution checks, and actual redemption/net-margin outcomes. This failed configuration does not generalize to all nonlinear CATE or X-learner approaches.",
+        "lesson": "In this dataset and task, removing the XLearner random_state argument fixed the runtime blocker but did not make the nonlinear X-learner beat the linear seed on validation conversion policy metrics; the tested configuration failed to meet the predefined mean/lower/AUUC/Qini thresholds. This does not generalize to all nonlinear CATE or X-learner configurations. Suspected feature-timing and cost-assumption limitations mean the result should be treated as exploratory, not as proof of final improvement or final degradation.",
+        "next_direction": "Do not deploy this after candidate as a proven improvement. Keep the baseline/prior candidate unless a final holdout confirms a stable positive paired_vs_baseline interval. Next offline tests should vary one factor at a time from this configuration, such as CATE model/hyperparameters, propensity and cost model specification, policy threshold, or calibrated ranking objective, while adding row-level pre-treatment feature timestamps, randomized assignment execution checks, and actual redemption/cost and net_margin where available. Re-evaluate only conversion; do not label access/click/conversion as active uplift. If another nonlinear X-learner variant is tested, it should be a separate hypothesis rather than an assumption that the whole nonlinear category is invalid."
+      }
+    },
+    {
+      "id": "step-003",
+      "status": "evaluated",
+      "candidate": "steps/step-003/candidate.py",
+      "candidate_sha256": "a44a3a2e70a64a15095ca6af76771b4d113b605c8ba7698f939cce1259c62884",
+      "operator": "crossover",
+      "parent_ids": [
+        "seed",
+        "step-002"
+      ],
+      "hypothesis": "The seed's linear T-learner ignores propensity and the X-learner's MLP CATE may overfit; a cross-fitted R-learner that combines the seed's TorchRidge outcome model with step-002's propensity adjustment should estimate CATE more efficiently and improve conversion policy ranking over both.",
+      "expected_result": "On validation, the selected conversion policy's mean effect should exceed the seed's 0.003312 and its lower bound should exceed 0.001707, with AUUC > 0.006852 or Qini > 0.002534, while predicted cost per unit remains <= 0.03.",
+      "approach": "Crossover of the seed's TorchRidge outcome model and step-002's propensity adjustment. Use cross-fitting to form R-learner pseudo-outcomes, then fit a regularized linear CATE model. This tests whether residualizing on propensity and marginal outcome improves CATE ranking over the T-learner and X-learner mechanisms.",
+      "score": 0.0033122375347489205,
+      "report": {
+        "run_id": "f97ff7c3f9544a83",
+        "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+        "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+        "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+        "candidate_sha256": "a44a3a2e70a64a15095ca6af76771b4d113b605c8ba7698f939cce1259c62884",
+        "prediction_sha256": "6f50b9fa3139578873cecf94edf03141592c7cc6d131fb6a06989c7b2a645faa",
+        "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+        "budget": {
+          "kind": "cost",
+          "value": 0.03
+        },
+        "seed": 42,
+        "model_device": "cuda",
+        "cuda_peak_bytes": 37212160,
+        "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+        "holdout": "validation",
+        "holdout_size": 16907,
+        "features": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "outcome_columns": {
+          "conversion": "purchase"
+        },
+        "data_validation": {
+          "feature_timing": "declared_only",
+          "assignment_probability": "documented"
+        },
+        "available_outcomes": [
+          "conversion"
+        ],
+        "unavailable_objectives": [
+          "active",
+          "net_margin"
+        ],
+        "policies": {
+          "conversion": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0033122375347489205,
+                "lower": 0.0017066163250949017,
+                "upper": 0.004917858744402939,
+                "se": 0.0008191944947214382
+              }
+            },
+            "predicted_cost_per_unit": 0.02999645117406991,
+            "assumed_cost": 0.02999645117406991,
+            "delta_vs_random": {
+              "conversion": 0.002011001360383273
+            }
+          },
+          "random": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0013012361743656475,
+                "lower": -0.00028821876140729076,
+                "upper": 0.0028906911101385857,
+                "se": 0.0008109463958025196
+              }
+            },
+            "predicted_cost_per_unit": 0.029996451174069908,
+            "assumed_cost": 0.029996451174069908
+          }
+        },
+        "ranking_diagnostics": {
+          "conversion": {
+            "auuc": 0.006845653104018022,
+            "qini": 0.0025279148890774645
+          }
+        },
+        "policy_sha256": {
+          "conversion": "fc18fda101f7a3842b1dac4b8962c3dd3bd82a1b0214d2e673f8b5d77e77e257",
+          "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+        },
+        "paired_vs_random": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.0020110013603832732,
+              "lower": 0.00011335906060234492,
+              "upper": 0.003908643660164202,
+              "se": 0.0009681848468270042
+            }
+          }
+        },
+        "notes": [
+          "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+          "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+          "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+          "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+          "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+          "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+          "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。"
+        ],
+        "feature_gaps": "Current conversion experiment is testable with existing pre-treatment fields V1-V7. For future data changes, row-level pre-treatment timestamps for V1-V7, verified randomized assignment execution probability, and actual redemption/net_margin fields would strengthen temporal validity and cost-benefit validation. These gaps limit causal confidence and cost-benefit conclusions but do not block this offline R-learner test.\n",
+        "compare_candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+        "compare_prediction_sha256": "f5c9eddeca667c8d4a32a4931246a5e3417ac0c4892d13447fa1cae23e4affee",
+        "paired_vs_baseline": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.0,
+              "lower": 0.0,
+              "upper": 0.0,
+              "se": 0.0
+            }
+          }
+        },
+        "baseline_policy_sha256": {
+          "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b"
+        }
+      },
+      "analysis": {
+        "model": "deepseek-flash",
+        "provider_url": "https://api.deepseek.com",
+        "initial_effort": "high",
+        "review_effort": "max",
+        "run_id": "f97ff7c3f9544a83",
+        "high": {
+          "summary": "这是一个离线随机优惠券 uplift 实验，留出集为 validation，含 16907 个合格用户。候选策略在留出集上展示 conversion 提升：策略效应均值 0.003312（95% CI 0.001707–0.004918），随机策略均值 0.001301（95% CI -0.000288–0.002891），配对差值 vs random 为 0.002011（95% CI 0.000113–0.003909）。但 validation 可被多轮选择，不能作为最终提升证据。新候选 vs 旧候选的 paired_vs_baseline 全为 0（mean=0, lower=0, upper=0, se=0），且 before/after 的 conversion 策略效应逐位相同，同时 candidate/prediction hash 和 ranking auuc/qini 有变化，存在退化或比较未生效的异常信号。特征时点仅有 manifest 声明，缺少逐行时间证据；成本来自固定发券费假设，缺少实际核销和净边际。",
+          "recommendation": "不要仅凭当前 validation 结果上线或宣称新候选优于旧候选。应先在独立锁定测试集或时间外验证集上复核：用 paired_vs_baseline 区间比较新候选与旧候选，只有区间明确排除 0 才可声称改进；同时核查 before/after 策略效应完全相同及 paired_vs_baseline 零区间的原因。上线前需补充 V1-V7 逐行干预前时间戳、随机分配执行概率核对、实际发券/核销成本与 net_margin/active 等结果，并用实际成本而非固定 0.15 假设重新评估预算和收益。",
+          "uplift_anomaly": {
+            "flag": true,
+            "evidence": "存在异常/退化信号：after 报告中 conversion 策略效应、random 效应及 paired_vs_random 与 before 逐位相同，但 candidate_sha256、prediction_sha256、policy_sha256(conversion) 已变化，ranking auuc/qini 也略有变化；同时 paired_vs_baseline 为 mean=0、lower=0、upper=0、se=0。这可能表示新候选未改变前 3381 名选择，或比较/落盘存在退化，不能据此声称新候选改进。validation 上的正 uplift 与 random 差值可作参考，但非最终证据。",
+            "flag_reason": "before/after 效应完全相同且新 vs 旧配对区间为零"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "data_validation.feature_timing='declared_only'，只有 manifest 声明特征时点，缺少 V1-V7 的逐行时间戳；无法确认这些特征均在干预前测量，也不能排除干预后特征或结果信息泄漏。assignment_probability='documented' 但未核对执行概率。按规则，这属于泄露怀疑而非确认，需独立复核；当前无具体证据可设 confirmed=true。",
+            "confirmed_reason": "缺少逐行时间证据，仅有声明"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "成本来自每位选中用户固定发券费 0.15 的假设，并按全体合格留出用户平均得到约 0.029996，与预算 0.03 几乎相等；这不是实际核销成本。报告仅提供 conversion，active 和 net_margin 不可用，缺少实际 redemption、发券成本区间和净边际。发券选择使用预测成本，报告中的观测成本及区间可能超过预算，因此成本-收益权衡不清。"
+          }
+        },
+        "review_reasons": [
+          "uplift_anomaly",
+          "feature_leakage",
+          "cost_tradeoff_unclear"
+        ],
+        "max": {
+          "summary": "本实验为离线随机优惠券 uplift 评估，留出集为 validation，16907 个合格用户，成本预算 0.03。before/after 中 conversion 策略均选中 3381 人，策略效应均为 0.003312（95% CI 0.001707–0.004918），random 均为 0.001301（95% CI -0.000288–0.002891），paired vs random 均为 0.002011（95% CI 0.000113–0.003909）。但 validation 可被多轮选择，不能据此作最终提升结论。新 vs 旧：after 的 paired_vs_baseline 为 mean=0、lower=0、upper=0、se=0，不能声称新候选优于旧候选；同时 candidate/prediction/policy_sha256 和 auuc/qini 有变化而策略效应逐位相同，提示需排查新候选是否未改变选中集合或比较未生效。特征时点仅 manifest 声明，缺少逐行干预前时间戳；成本仅为固定发券费假设，实际核销、active、net_margin 不可用。",
+          "recommendation": "不要仅凭当前 validation 结果上线或宣称新候选优于旧候选。应先在独立锁定测试集或时间外验证集复核新 vs 旧，并以 paired_vs_baseline 区间判断：当前区间为 0，无法支持改进；只有独立样本区间明确排除 0 才可谨慎声称改进。同时核查 after 策略效应与 before 逐位相同、paired_vs_baseline 零区间的原因，补充 V1-V7 逐行干预前时间戳、随机分配执行概率核对、实际发券/核销成本与 net_margin/active 等结果，并用实际成本而非固定 0.15 假设重新评估预算和收益。",
+          "uplift_anomaly": {
+            "flag": true,
+            "evidence": "确认存在异常/无法证明改进的信号：after 的 conversion 策略效应、random 效应及 paired_vs_random 与 before 逐位相同，但 candidate_sha256、prediction_sha256、policy_sha256(conversion) 已变化，auuc/qini 略有变化；且 paired_vs_baseline 为 mean=0、lower=0、upper=0、se=0。这可能是因为新模型分数变化未改变前 3381 名选中集合，也可能是比较/落盘未生效。当前证据支持 flag=true 并要求排查，但不能据此断言退化或最终提升。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "data_validation.feature_timing='declared_only'，只有 manifest 声明 V1-V7 时点，缺少逐行时间戳；无法确认这些特征均在干预前测量，也不能排除干预后特征或结果信息泄漏。assignment_probability='documented' 但未核对实际随机分配执行概率。candidate 代码本身未见把 treatment/outcome 直接作为特征，但无具体证据可设 confirmed=true。属于泄露怀疑，需独立复核。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "成本来自每位选中用户固定发券费 0.15 的假设，并按全体合格留出用户平均得到约 0.029996，与预算 0.03 几乎相同；这不是实际核销成本。发券选择使用预测成本，报告只有 conversion，active 和 net_margin 不可用，缺少实际 redemption、发券成本区间和净边际。因此成本-收益权衡不清，需用实际成本复核。"
+          }
+        }
+      },
+      "eligibility": "eligible",
+      "reflection": {
+        "verdict": "inconsistent",
+        "evidence": "No external research was supplied. On the validation holdout, the conversion policy mean effect is 0.0033122375, exactly equal to the baseline_score 0.0033122375, not greater than the expected >0.003312. Its lower bound is 0.0017066163, below the expected >0.001707. AUUC is 0.0068456531, below the expected >0.006852; Qini is 0.0025279149, below the expected >0.002534. The paired_vs_baseline conversion comparison is mean=0.0, lower=0.0, upper=0.0, se=0.0, so there is no detected improvement over the seed baseline. The paired_vs_random difference is positive (mean 0.002011, lower 0.000113, upper 0.003909), but this is an exploratory validation result and not evidence against the seed. Predicted cost per unit is 0.029996 <= 0.03, but this is based on the fixed issuance-cost assumption; actual redemption/net_margin are unavailable. Feature timing is declared_only and leakage is flagged but not confirmed. The high/max analysis also flags an uplift anomaly because policy effects are bitwise identical before/after while hashes and AUUC/Qini changed, suggesting either the new candidate did not alter the selected set or the comparison/plumbing was ineffective. Thus the R-learner crossover hypothesis was not supported: it did not exceed the seed on the specified validation metrics, and the seed-vs-candidate comparison is zero. The T-learner, X-learner, and R-learner mechanisms are not independently isolated by the supplied evidence; only the candidate-vs-seed policy metric comparison is available, and it is null.",
+        "lesson": "For this coupon conversion dataset and validation task, the cross-fitted R-learner crossover did not demonstrate the expected improvement over the seed baseline: the policy mean effect and lower bound did not exceed the stated thresholds, the AUUC/Qini thresholds were missed, and paired_vs_baseline was exactly zero. A positive random-policy contrast alone is exploratory and does not prove final improvement. The declared-only feature timing and assumed fixed coupon cost weaken causal and cost-benefit confidence, but leakage is not confirmed and actual redemption/net_margin were not observed, so do not infer missing features or costs.",
+        "next_direction": "First debug why candidate and baseline policy effects are identical despite changed candidate/prediction/policy hashes: verify whether the selected users or ranking changed and whether paired_vs_baseline was computed correctly. Then run a locked or temporal holdout comparing the candidate against the seed with paired intervals that exclude zero, and report AUUC/Qini against the same seed thresholds. If the selection/plumbing is identical, test a distinct offline R-learner variant or different propensity/outcome model specification rather than concluding that the category cannot work. Keep cost conclusions within the supplied fixed issuance-cost assumption unless actual redemption/net_margin data become available."
+      }
+    }
+  ],
+  "diagnoses": [],
+  "best_id": "seed",
+  "data_request": {
+    "reason": "Experiment budget is exhausted, so no further experiments or diagnoses can run in this search. The current validation history cannot yet rule out feature-timing leakage and relies on an assumed fixed coupon cost; a concrete missing pre-treatment timing field is required before further offline causal validation can be interpreted safely.",
+    "feature_request": {
+      "name": "row_level_pre_treatment_timestamps_V1_V7",
+      "definition": "Per-row measurement timestamps for V1-V7 relative to treatment assignment, plus a derived flag indicating whether each feature value was observed at or before the user's randomized coupon assignment time.",
+      "source": "Raw event/attribute logs or warehouse snapshot used to construct the modeling table, joined with assignment timestamps from the randomization service.",
+      "as_of": "Pre-treatment: each V1-V7 value should be measured at or before the coupon assignment timestamp for that row.",
+      "evidence": "The manifest reports data_validation.feature_timing='declared_only'. Validation reports flag feature_leakage as suspected but unconfirmed because no row-level timestamps are available; the current candidates use V1-V7 as features but cannot prove pre-treatment timing.",
+      "validation_plan": "Join the timestamps to the frozen train/validation rows, compute the fraction of V1-V7 values measured after assignment, and rerun the same offline conversion evaluation only on rows with verified pre-treatment timing. Compare paired_vs_baseline, policy effects, and AUUC/Qini against the current validation results; if post-assignment values are found, exclude or rebuild the affected features before any further uplift test."
+    },
+    "after_step": 3,
+    "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+    "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5"
+  }
+}

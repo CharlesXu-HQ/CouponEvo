@@ -6,19 +6,33 @@ import hashlib
 import importlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from .data import load_dataset, split_dataset
 
 
+_model_evo_loaded: tuple[object, str | None] | None = None
+
+
 def _model_evo_package():
+    global _model_evo_loaded
+    if "model_evo_harness" in sys.modules and _model_evo_loaded is None:
+        raise RuntimeError("model-evo package was preloaded without a recorded revision; "
+                           "start a new Python process")
     try:
-        return importlib.import_module("model_evo_harness")
+        package = importlib.import_module("model_evo_harness")
     except ModuleNotFoundError as error:
         if error.name != "model_evo_harness":
             raise
         raise RuntimeError("--harness model-evo requires the optional model-evo-harness package; "
-                           "install its pinned Git revision (see docs/model-evo-harness.md)") from error
+                           "install it from the submodule checkout (see docs/model-evo-harness.md)") from error
+    revision = _model_evo_revision(package)
+    if _model_evo_loaded is None:
+        _model_evo_loaded = (package, revision)
+    elif _model_evo_loaded != (package, revision):
+        raise RuntimeError("model-evo submodule changed while loaded; start a new Python process")
+    return package
 
 
 def _is_model_evo(path: Path | None) -> bool:
@@ -31,6 +45,46 @@ def _model_evo_revision(package) -> str | None:
         return None
     return subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], check=True,
                           capture_output=True, text=True).stdout.strip()
+
+
+def refresh_model_evo(path: Path | None) -> None:
+    """Use remote main for a new search, before importing the external package."""
+    if not _is_model_evo(path):
+        return
+    root = Path(__file__).resolve().parents[2]
+    checkout = root / "third_party/model-evo-harness"
+    loaded = sys.modules.get("model_evo_harness")
+    if loaded is not None and (_model_evo_loaded is None or _model_evo_loaded[0] is not loaded):
+        raise RuntimeError("model-evo package was preloaded without a recorded revision; "
+                           "start a new Python process")
+    if loaded is None and _model_evo_loaded is not None:
+        raise RuntimeError("model-evo package was unloaded; start a new Python process")
+    if loaded is not None and not Path(loaded.__file__).resolve().is_relative_to(checkout.resolve()):
+        raise RuntimeError("model-evo package must be imported from the submodule checkout")
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(checkout), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    if (checkout / ".git").exists():
+        if git("status", "--porcelain"):
+            raise RuntimeError("model-evo submodule has uncommitted changes")
+        if loaded is not None and git("rev-parse", "HEAD") != _model_evo_loaded[1]:
+            raise RuntimeError("model-evo submodule changed while loaded; start a new Python process")
+    try:
+        subprocess.run(["git", "-C", str(root), "submodule", "update", "--init", "--remote",
+                        "third_party/model-evo-harness"], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError("could not update model-evo submodule from remote main") from error
+    if not (checkout / ".git").exists():
+        raise RuntimeError("model-evo submodule checkout is missing after update")
+    if git("status", "--porcelain"):
+        raise RuntimeError("model-evo submodule has uncommitted changes")
+    if loaded is not None and git("rev-parse", "HEAD") != _model_evo_loaded[1]:
+        raise RuntimeError("model-evo submodule changed while loaded; start a new Python process")
+    package = _model_evo_package()
+    if not Path(package.__file__).resolve().is_relative_to(checkout.resolve()):
+        raise RuntimeError("model-evo package must be installed from the submodule checkout")
 
 
 def load_harness(path: Path) -> dict:

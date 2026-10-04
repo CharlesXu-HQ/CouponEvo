@@ -1,13 +1,13 @@
-# ModelEvoHarness 接入与 GPU A/B 计划
+# ModelEvoHarness 接入与 GPU A/B 验证
 
 ModelEvoHarness 是独立的跨场景模型迭代项目。CouponEvo 通过 `--harness model-evo` 读取其研究 catalog、判断方向与当前任务的适用性，并校验 Agent 的实验设计。训练、候选代码隔离执行、固定目标、预算、验证集和最终留出集仍由 CouponEvo 控制。仓库内的 [JSON 研究插件](harness.md) 是另一种可选入口。
 
 ## 安装与任务边界
 
-CouponEvo 用 `third_party/model-evo-harness` Git submodule 引入独立仓库。克隆 CouponEvo 后，以及**每次开始新的搜索前**，将 submodule 更新到最新 `main`；然后从本地检出目录安装到运行搜索的主机 Python 环境。候选代码的 Docker 镜像不需要安装它。当前 `uv.lock` 不含这项可选依赖，因此先同步 CouponEvo 环境，再安装 submodule，并用 `.venv/bin/python` 运行；若以后重新同步环境，应从**同一检出目录**重新安装，不要在续跑时更新 submodule。
+CouponEvo 用 `third_party/model-evo-harness` Git submodule 引入独立仓库。克隆后先初始化 submodule，并从本地检出目录安装到运行搜索的主机 Python 环境；仅克隆 CouponEvo 不会安装这个包。每次新建 `search --harness model-evo` 会在导入包前自动执行 `git submodule update --init --remote`，获取配置的最新 `main`。候选代码的 Docker 镜像不需要安装它。当前 `uv.lock` 不含这项可选依赖，因此先同步 CouponEvo 环境，再安装 submodule，并用 `.venv/bin/python` 运行；若以后重新同步环境，应从**同一检出目录**重新安装。
 
 ```bash
-git submodule update --init --remote third_party/model-evo-harness
+git submodule update --init third_party/model-evo-harness
 git -C third_party/model-evo-harness rev-parse HEAD
 git -C third_party/model-evo-harness status --short  # 应为空
 uv sync --frozen --python 3.12
@@ -15,15 +15,17 @@ uv pip install --python .venv/bin/python -e ./third_party/model-evo-harness
 .venv/bin/python -c 'import model_evo_harness; print(model_evo_harness.__file__)'
 ```
 
-CouponEvo 的 Gitlink 记录 submodule 的默认提交；`--remote` 会把本地检出推进到最新 `main`，因此新搜索实际使用的提交应以 `git -C third_party/model-evo-harness rev-parse HEAD` 为准。检查 submodule 工作区无未提交修改，确保记录的提交与运行代码一致。同一次搜索的 `search`、`--resume` 和 `finalize` 都必须带 `--harness model-evo`，并保持同一 submodule 提交，不在中途更新。CouponEvo 将源码提交、包实现摘要和 catalog 摘要写入任务身份；版本变化会拒绝续跑，也不会复用旧版本经验。省略该参数就是原有搜索；`--harness harnesses/coupon-research.json` 仍使用仓库内 JSON 指南。
+CouponEvo 的 Gitlink 记录 submodule 的默认提交；新搜索会把本地检出推进到最新 `main`。如需运行前查看远端版本，也可手动执行 `git submodule update --init --remote third_party/model-evo-harness`，但新搜索不依赖这一步。检查 submodule 工作区无未提交修改，确保记录的提交与运行代码一致。同一次搜索的 `search`、`--resume` 和 `finalize` 都必须带 `--harness model-evo`。`--resume` 和 `finalize` 不更新 submodule；其提交须与搜索记录相同。CouponEvo 将源码提交、包实现摘要和 catalog 摘要写入任务身份；版本变化会拒绝续跑，也不会复用旧版本经验。省略该参数就是原有搜索；`--harness harnesses/coupon-research.json` 仍使用仓库内 JSON 指南。
 
 接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验，缺少输入时提交数据请求。规范化的研究设计和外部包身份保存在 CouponEvo journal 中；候选代码不会导入 ModelEvoHarness。
 
-## 尚未执行的 GPU A/B 计划
+## GPU A/B 复现实验
+
+种子 42 的全量 Starbucks GPU 对照已执行。两组 Agent 都提出新数据需求，因此按现有规则没有运行正式 `finalize`；冻结验证集候选后的单次诊断性配对测试，其 95% 区间包含零。实验结果、源提交及产物见[报告](research/model-evo-harness-starbucks-ab-2026-10-04.md)。下面保留实验方案和复现命令。
 
 目标是比较**相同 CouponEvo 版本下**的基础 Agent 搜索与启用 ModelEvoHarness 的搜索。两组使用相同的 Starbucks CSV、manifest、初始候选、DeepSeek 配置、目标 `conversion`、每位候选用户 `0.03` 的假设成本预算、每轮最多 3 次实验、CUDA Docker 镜像。至少按种子 `42` 做一对完整数据搜索；资源允许时，可在看最终留出集结果**之前**预定增加 `43`、`44`。每对只改变 `--harness model-evo`。不传 `--experience-dir`，避免两组互相读到历史经验。Agent 可能提前停止或提交数据请求，这也是实验结果，不能补跑到预期步数后只保留有利样本。
 
-先在 Linux CUDA 主机按 [数据说明](../examples/README.md)准备完整 `data/starbucks-training.csv`，配置 Docker GPU 和匹配的 PyTorch CUDA 版本，把 API 密钥放在 `AGENT_API_KEY` 环境变量中。下面在两组搜索开始前只更新一次 submodule，并记录当时的提交；直到两组 `finalize` 和配对比较结束都不要再次更新。
+先在 Linux CUDA 主机按 [数据说明](../examples/README.md)准备完整 `data/starbucks-training.csv`，配置 Docker GPU 和匹配的 PyTorch CUDA 版本，把 API 密钥放在 `AGENT_API_KEY` 环境变量中。下面的手动更新仅用于预检和记录计划使用的提交；每次新建 ModelEvoHarness 搜索仍会自动检查最新 `main`。脚本会核对实际提交，防止一组 A/B 搜索混用不同版本。续跑与最终评估不会自动更新。
 
 ```bash
 set -euo pipefail
@@ -57,6 +59,12 @@ for seed in "${BENCH_SEEDS[@]}"; do
       --max-steps 3 --search-id "${arm}-s${seed}" --output "$BENCH_OUT" \
       --device cuda --agent-config examples/agent.deepseek.json \
       --sandbox-image "$SANDBOX_IMAGE" "${harness_args[@]}"
+    if [[ "$arm" == model-evo ]]; then
+      test "$(git -C third_party/model-evo-harness rev-parse HEAD)" = "$MODEL_EVO_COMMIT" || {
+        echo 'ModelEvoHarness main changed during benchmark; stop and restart the A/B pair' >&2
+        exit 1
+      }
+    fi
   done
 done
 ```

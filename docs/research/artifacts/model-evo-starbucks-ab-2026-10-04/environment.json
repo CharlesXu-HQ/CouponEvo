@@ -1,0 +1,14 @@
+{
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "torch": "2.14.1+cu130",
+  "econml": "0.17.0",
+  "cuda_available": true,
+  "gpu": "NVIDIA GeForce RTX 5090",
+  "model_evo_module": "/home/charles/couponevo-model-evo-submodule-20261004/third_party/model-evo-harness/src/model_evo_harness/__init__.py",
+  "harness_identity": {
+    "source": "ModelEvoHarness",
+    "catalog_digest": "e07ba67a7e592472dba50e579a70273d5660f424b2b27ec6e64af305e24e566f",
+    "implementation_digest": "b1f61ee0312bac00fbd9d5390805a92a635559613484172b16e74f37777bbf8a",
+    "source_commit": "bc3690079ccebcdb224e7ba653d406b5a731058d"
+  }
+}

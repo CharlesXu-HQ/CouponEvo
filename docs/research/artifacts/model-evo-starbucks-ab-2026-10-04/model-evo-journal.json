@@ -1,0 +1,2422 @@
+{
+  "task": {
+    "dataset": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+    "manifest": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+    "framework": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+    "initial_candidate": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+    "agent_workflow": "4174b1aa1deafe9d38ca1f4d88ab9179c758c5b80f46552364af87fb3ee0bc45",
+    "harness": {
+      "source": "ModelEvoHarness",
+      "catalog_digest": "e07ba67a7e592472dba50e579a70273d5660f424b2b27ec6e64af305e24e566f",
+      "implementation_digest": "b1f61ee0312bac00fbd9d5390805a92a635559613484172b16e74f37777bbf8a",
+      "source_commit": "bc3690079ccebcdb224e7ba653d406b5a731058d"
+    },
+    "budget": {
+      "kind": "cost",
+      "value": 0.03
+    },
+    "seed": 42,
+    "objective": "conversion",
+    "device": "cuda",
+    "strict_data": false,
+    "sandbox_image": "coupon-lab-sandbox:py312-cuda128",
+    "experience_dir": null
+  },
+  "agent": {
+    "provider_url": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "thinking": "enabled",
+    "iteration_effort": "high",
+    "review_effort": "max"
+  },
+  "harness": {
+    "source": "ModelEvoHarness",
+    "catalog": {
+      "schema_version": 1,
+      "name": "Cross-scenario model research",
+      "source_commit_sha": "5f7bd84d4403b5f92b6bedbd31e3984ef00a4572",
+      "source_tree_sha": "84a4e63da7d7cb0ca8ea7e47128174535f0ab40a",
+      "guidance": "Use families as evidence-based research lenses, not a closed model menu. Confirm data semantics and time boundaries. Keep the host task objective, evaluation and resource budget fixed. A family with no upstream code is a documented concept, not an installed model.",
+      "families": [
+        {
+          "id": "task_framing",
+          "name": "Task framing and measurement",
+          "stages": [],
+          "requires": [],
+          "question": "What decision is being optimized, at which stage, under which observable feedback?",
+          "experiment": "Freeze the unit, target, split, metric, guardrails and comparison before selecting a model family.",
+          "pitfalls": "A better proxy metric does not by itself establish a better downstream decision.",
+          "source_docs": [
+            "docs/chapter_0_introduction/1.intro.html",
+            "docs/chapter_0_introduction/2.outline.html"
+          ],
+          "source_models": [],
+          "source_support": [
+            "src/funrec/config/data_config.py",
+            "src/funrec/data/data_utils.py",
+            "src/funrec/data/loaders.py",
+            "src/funrec/data/preprocess/e_commerce.py",
+            "src/funrec/data/preprocess/kuairand.py",
+            "src/funrec/data/preprocess/movielens.py",
+            "src/funrec/evaluation/evaluator.py",
+            "src/funrec/evaluation/metrics.py",
+            "src/funrec/experiment.py",
+            "src/funrec/models/layers.py",
+            "src/funrec/models/utils.py",
+            "src/funrec/training/loss.py",
+            "src/funrec/training/trainer.py",
+            "src/funrec/utils.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "collaborative_retrieval",
+          "name": "Collaborative retrieval",
+          "stages": [
+            "retrieval"
+          ],
+          "requires": [
+            "interaction_graph",
+            "item_catalog"
+          ],
+          "question": "Can user-item co-occurrence recover useful candidates beyond a simple popularity baseline?",
+          "experiment": "Compare neighborhood and factorization representations at fixed candidate count and retrieval metric.",
+          "pitfalls": "Time leakage in interaction graphs and unseen-item support can invalidate the comparison.",
+          "source_docs": [
+            "docs/chapter_1_retrieval/1.cf/1.itemcf.html",
+            "docs/chapter_1_retrieval/1.cf/2.swing.html",
+            "docs/chapter_1_retrieval/1.cf/3.usercf.html",
+            "docs/chapter_1_retrieval/1.cf/4.mf.html"
+          ],
+          "source_models": [
+            "src/funrec/models/item_cf.py",
+            "src/funrec/models/user_cf.py",
+            "src/funrec/models/swing.py",
+            "src/funrec/models/funksvd.py",
+            "src/funrec/models/biassvd.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_biassvd.py",
+            "src/funrec/config/config_funksvd.py",
+            "src/funrec/config/config_item_cf.py",
+            "src/funrec/config/config_swing.py",
+            "src/funrec/config/config_user_cf.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "item_representation",
+          "name": "Item embeddings and graph retrieval",
+          "stages": [
+            "retrieval"
+          ],
+          "requires": [
+            "item_catalog",
+            "interaction_graph"
+          ],
+          "question": "Does item-context structure improve nearest-neighbor retrieval?",
+          "experiment": "Compare co-occurrence, embedding and graph-aware item representations at matched retrieval budget.",
+          "pitfalls": "Transductive embeddings can absorb evaluation-period interactions.",
+          "source_docs": [
+            "docs/chapter_1_retrieval/2.i2i/1.word2vec.html",
+            "docs/chapter_1_retrieval/2.i2i/2.item2vec.html",
+            "docs/chapter_1_retrieval/2.i2i/3.eges.html",
+            "docs/chapter_1_retrieval/2.i2i/4.airbnb.html"
+          ],
+          "source_models": [
+            "src/funrec/models/item2vec.py",
+            "src/funrec/models/eges.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_eges.py",
+            "src/funrec/config/config_item2vec.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "two_tower_matching",
+          "name": "Two-tower matching",
+          "stages": [
+            "retrieval"
+          ],
+          "requires": [
+            "item_catalog",
+            "user_features"
+          ],
+          "question": "Does learned user-item matching improve recall within latency and index limits?",
+          "experiment": "Compare a simple matching baseline with dot-product towers and assess recall, coverage and serving cost.",
+          "pitfalls": "A matching score is not a calibrated treatment effect or business value.",
+          "source_docs": [
+            "docs/chapter_1_retrieval/3.two_tower/1.fm.html",
+            "docs/chapter_1_retrieval/3.two_tower/2.dssm.html",
+            "docs/chapter_1_retrieval/3.two_tower/3.youtubednn.html"
+          ],
+          "source_models": [
+            "src/funrec/models/fm_recall.py",
+            "src/funrec/models/dssm.py",
+            "src/funrec/models/youtubednn.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_dssm.py",
+            "src/funrec/config/config_fm_recall.py",
+            "src/funrec/config/config_youtubednn.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "interest_retrieval",
+          "name": "Interest and sequence retrieval",
+          "stages": [
+            "retrieval"
+          ],
+          "requires": [
+            "event_sequence",
+            "item_catalog"
+          ],
+          "question": "Do multiple interests or event order improve retrieval?",
+          "experiment": "Ablate pooled history, multiple interests and sequential attention using pre-cutoff event histories.",
+          "pitfalls": "Aggregates cannot be expanded into event order; negative sampling must match the task.",
+          "source_docs": [
+            "docs/chapter_1_retrieval/4.sequence/1.mind.html",
+            "docs/chapter_1_retrieval/4.sequence/2.sdm.html"
+          ],
+          "source_models": [
+            "src/funrec/models/mind.py",
+            "src/funrec/models/sdm.py",
+            "src/funrec/models/sasrec.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_mind.py",
+            "src/funrec/config/config_sasrec.py",
+            "src/funrec/config/config_sdm.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "streaming_index",
+          "name": "Streaming retrieval and indexing",
+          "stages": [
+            "retrieval"
+          ],
+          "requires": [
+            "item_catalog",
+            "streaming_updates"
+          ],
+          "question": "Is representation freshness or index maintenance limiting quality?",
+          "experiment": "Compare fixed and updated representations with consistent latency, freshness and recall measurements.",
+          "pitfalls": "Offline static data cannot validate online update consistency or service latency.",
+          "source_docs": [
+            "docs/chapter_1_retrieval/5.streaming_index/1.trinity.html",
+            "docs/chapter_1_retrieval/5.streaming_index/2.streaming_vq.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "feature_interactions",
+          "name": "Feature representation and interactions",
+          "stages": [
+            "ranking",
+            "policy"
+          ],
+          "requires": [
+            "tabular_features"
+          ],
+          "question": "Which feature dependency is missed by the current representation?",
+          "experiment": "Compare a fixed baseline with explicit or learned crosses and ablate the interaction component.",
+          "pitfalls": "Capacity alone is not evidence for interaction benefit; use only available time-safe fields.",
+          "source_docs": [
+            "docs/chapter_2_ranking/1.wide_and_deep.html",
+            "docs/chapter_2_ranking/2.feature_crossing/1.second_order.html",
+            "docs/chapter_2_ranking/2.feature_crossing/2.higher_order.html"
+          ],
+          "source_models": [
+            "src/funrec/models/wide_deep.py",
+            "src/funrec/models/fm.py",
+            "src/funrec/models/deepfm.py",
+            "src/funrec/models/nfm.py",
+            "src/funrec/models/afm.py",
+            "src/funrec/models/dcn.py",
+            "src/funrec/models/xdeepfm.py",
+            "src/funrec/models/pnn.py",
+            "src/funrec/models/fibinet.py",
+            "src/funrec/models/autoint.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_afm.py",
+            "src/funrec/config/config_autoint.py",
+            "src/funrec/config/config_dcn.py",
+            "src/funrec/config/config_deepfm.py",
+            "src/funrec/config/config_fibinet.py",
+            "src/funrec/config/config_fm.py",
+            "src/funrec/config/config_nfm.py",
+            "src/funrec/config/config_pnn.py",
+            "src/funrec/config/config_wide_deep.py",
+            "src/funrec/config/config_xdeepfm.py",
+            "src/funrec/features/feature_column.py",
+            "src/funrec/features/processors.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "sequence_ranking",
+          "name": "Behavior sequence ranking",
+          "stages": [
+            "ranking",
+            "policy"
+          ],
+          "requires": [
+            "event_sequence"
+          ],
+          "question": "Does recency, evolving interest or session structure improve target-conditioned prediction?",
+          "experiment": "Compare static aggregates with time-safe sequential encoders and attention ablations.",
+          "pitfalls": "Target-conditioned attention needs a real target representation; single-row aggregates are not sequences.",
+          "source_docs": [
+            "docs/chapter_2_ranking/3.sequence.html"
+          ],
+          "source_models": [
+            "src/funrec/models/din.py",
+            "src/funrec/models/dien.py",
+            "src/funrec/models/dsin.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_dien.py",
+            "src/funrec/config/config_din.py",
+            "src/funrec/config/config_dsin.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "multiobjective",
+          "name": "Multiple outcomes and task dependence",
+          "stages": [
+            "ranking",
+            "policy",
+            "advertising"
+          ],
+          "requires": [
+            "multiple_outcomes"
+          ],
+          "question": "Can sharing across observed outcomes improve the fixed primary objective?",
+          "experiment": "Compare separate heads, shared representations and gated experts with auxiliary-loss ablations.",
+          "pitfalls": "Auxiliary labels and funnel dependencies must be observed; guard against negative transfer.",
+          "source_docs": [
+            "docs/chapter_2_ranking/4.multi_objective/1.arch.html",
+            "docs/chapter_2_ranking/4.multi_objective/2.dependency_modeling.html",
+            "docs/chapter_2_ranking/4.multi_objective/3.multi_loss_optim.html"
+          ],
+          "source_models": [
+            "src/funrec/models/shared_bottom.py",
+            "src/funrec/models/esmm.py",
+            "src/funrec/models/mmoe.py",
+            "src/funrec/models/ple.py",
+            "src/funrec/models/m2m.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_esmm.py",
+            "src/funrec/config/config_m2m.py",
+            "src/funrec/config/config_mmoe.py",
+            "src/funrec/config/config_ple.py",
+            "src/funrec/config/config_shared_bottom.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "multiscenario",
+          "name": "Scenario and context specialization",
+          "stages": [
+            "ranking",
+            "policy",
+            "advertising"
+          ],
+          "requires": [
+            "scenario_context"
+          ],
+          "question": "Do documented contexts have distinct response mechanisms?",
+          "experiment": "Compare pooled and context-conditioned parameters with support and transfer checks.",
+          "pitfalls": "Anonymous columns do not establish scenario meaning; small segments can overfit.",
+          "source_docs": [
+            "docs/chapter_2_ranking/5.multi_scenario/1.multi_tower.html",
+            "docs/chapter_2_ranking/5.multi_scenario/2.dynamic_weight.html"
+          ],
+          "source_models": [
+            "src/funrec/models/star.py",
+            "src/funrec/models/apg.py",
+            "src/funrec/models/pepnet.py",
+            "src/funrec/models/hmoe.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_apg.py",
+            "src/funrec/config/config_hmoe.py",
+            "src/funrec/config/config_pepnet.py",
+            "src/funrec/config/config_star.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "slate_reranking",
+          "name": "Slate reranking and diversity",
+          "stages": [
+            "reranking"
+          ],
+          "requires": [
+            "candidate_slates"
+          ],
+          "question": "Does joint selection improve relevance, diversity or constrained slate value?",
+          "experiment": "Compare pointwise ordering with greedy or slate-aware selection at fixed candidate set and slate size.",
+          "pitfalls": "A single binary action per user does not provide a slate or diversity target.",
+          "source_docs": [
+            "docs/chapter_3_rerank/1.greedy.html",
+            "docs/chapter_3_rerank/2.personalized.html"
+          ],
+          "source_models": [
+            "src/funrec/models/prm.py",
+            "src/funrec/models/prs.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_prm.py",
+            "src/funrec/config/config_prs.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "feedback_bias",
+          "name": "Feedback bias and causal support",
+          "stages": [
+            "retrieval",
+            "ranking",
+            "reranking",
+            "policy",
+            "advertising"
+          ],
+          "requires": [
+            "assignment_or_exposure_propensity"
+          ],
+          "question": "Could exposure or selection bias explain apparent model quality?",
+          "experiment": "Compare naive estimates with a design-appropriate correction and inspect support/variance.",
+          "pitfalls": "A logged probability does not prove exchangeability; response scores are not effects.",
+          "source_docs": [
+            "docs/chapter_4_trends/1.debias.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "cold_start",
+          "name": "Cold-start and sparse entities",
+          "stages": [
+            "retrieval",
+            "ranking",
+            "reranking",
+            "policy"
+          ],
+          "requires": [
+            "cold_start_segments"
+          ],
+          "question": "Does performance fail on new users, items or sparse contexts?",
+          "experiment": "Predefine cold-start cohorts and compare metadata/representation baselines on the same cohorts.",
+          "pitfalls": "Do not identify cold-start cohorts from post-outcome activity.",
+          "source_docs": [
+            "docs/chapter_4_trends/2.cold_start.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "generative_foundations",
+          "name": "Generative representations and tokenization",
+          "stages": [
+            "generation"
+          ],
+          "requires": [
+            "item_tokens",
+            "event_sequence"
+          ],
+          "question": "Is a generative representation suitable for the available item and sequence contract?",
+          "experiment": "Compare tokenization and sequence objectives with a fixed non-generative baseline.",
+          "pitfalls": "Token design, catalog coverage and output validity must be measured before quality claims.",
+          "source_docs": [
+            "docs/chapter_4_trends/3.generative.html",
+            "docs/chapter_5_gr_basic/1.gr_intro.html",
+            "docs/chapter_5_gr_basic/2.gr_arch_base.html",
+            "docs/chapter_5_gr_basic/3.llm_base.html",
+            "docs/chapter_5_gr_basic/4.codebook.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "scaling_architecture",
+          "name": "Scaling and hardware-aware architecture",
+          "stages": [
+            "ranking",
+            "generation"
+          ],
+          "requires": [
+            "event_sequence",
+            "compute_budget"
+          ],
+          "question": "Does scaling architecture improve quality at a feasible training and serving cost?",
+          "experiment": "Measure quality against parameters, FLOPs, memory, latency and sequence length.",
+          "pitfalls": "A single larger run is not a scaling law; document compute and data budgets.",
+          "source_docs": [
+            "docs/chapter_6_scaling/1.hstu.html",
+            "docs/chapter_6_scaling/2.gen_rank.html",
+            "docs/chapter_6_scaling/3.mtgr.html",
+            "docs/chapter_6_scaling/4.rankmixer.html",
+            "docs/chapter_6_scaling/5.one_trans.html"
+          ],
+          "source_models": [
+            "src/funrec/models/hstu.py"
+          ],
+          "source_support": [
+            "src/funrec/config/config_hstu.py"
+          ],
+          "source_project": []
+        },
+        {
+          "id": "generative_applications",
+          "name": "End-to-end generation for recommendation, search and ads",
+          "stages": [
+            "generation",
+            "search",
+            "advertising"
+          ],
+          "requires": [
+            "generative_targets"
+          ],
+          "question": "Can generation directly represent the target action or retrieved object?",
+          "experiment": "Compare generated outputs with retrieval or ranking baselines under validity and cost constraints.",
+          "pitfalls": "Generation cannot replace a missing action catalog, relevance labels or policy evaluation.",
+          "source_docs": [
+            "docs/chapter_7_gr_e2e/1.recommendation.html",
+            "docs/chapter_7_gr_e2e/2.search.html",
+            "docs/chapter_7_gr_e2e/3.ad.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "reasoning_recommendation",
+          "name": "Semantic and reasoning recommendation",
+          "stages": [
+            "generation",
+            "ranking"
+          ],
+          "requires": [
+            "semantic_item_context"
+          ],
+          "question": "Does semantic alignment or explicit reasoning improve decisions beyond simpler representations?",
+          "experiment": "Ablate semantic alignment and reasoning steps against matched model/compute baselines.",
+          "pitfalls": "Unverifiable rationales are not evidence of better recommendations.",
+          "source_docs": [
+            "docs/chapter_8_thinking/1.semantic_alignment.html",
+            "docs/chapter_8_thinking/2.reasoning_framework.html",
+            "docs/chapter_8_thinking/3.autonomous_reasoning.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "diffusion_recommendation",
+          "name": "Diffusion augmentation and recommendation",
+          "stages": [
+            "generation",
+            "ranking"
+          ],
+          "requires": [
+            "event_sequence",
+            "item_catalog"
+          ],
+          "question": "Does diffusion-based augmentation or representation help under the actual data distribution?",
+          "experiment": "Compare with non-diffusion augmentation while auditing generated sample validity.",
+          "pitfalls": "Synthetic interactions must not be treated as randomized outcomes.",
+          "source_docs": [
+            "docs/chapter_9_diffusion/1.basics.html",
+            "docs/chapter_9_diffusion/2.augmentation.html",
+            "docs/chapter_9_diffusion/3.application.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": []
+        },
+        {
+          "id": "production_lifecycle",
+          "name": "Offline-online system lifecycle",
+          "stages": [],
+          "requires": [
+            "deployment_context"
+          ],
+          "question": "Which offline gain survives retrieval, feature freshness and serving constraints?",
+          "experiment": "Check replay, feature parity, latency and deployment guardrails at a fixed model choice.",
+          "pitfalls": "Offline benchmark success does not establish online production effect.",
+          "source_docs": [
+            "docs/chapter_10_projects/1.intro.html",
+            "docs/chapter_10_projects/2.architecture.html",
+            "docs/chapter_10_projects/3.offline_pipeline.html",
+            "docs/chapter_10_projects/4.online_pipeline.html",
+            "docs/chapter_10_projects/5.frontend.html",
+            "docs/chapter_10_projects/6.deployment.html"
+          ],
+          "source_models": [],
+          "source_support": [],
+          "source_project": [
+            "web_project/backend/app/api/deps.py",
+            "web_project/backend/app/api/v1/api.py",
+            "web_project/backend/app/api/v1/endpoints/auth.py",
+            "web_project/backend/app/api/v1/endpoints/genres.py",
+            "web_project/backend/app/api/v1/endpoints/health.py",
+            "web_project/backend/app/api/v1/endpoints/movies.py",
+            "web_project/backend/app/api/v1/endpoints/people.py",
+            "web_project/backend/app/api/v1/endpoints/ratings.py",
+            "web_project/backend/app/api/v1/endpoints/recommendations.py",
+            "web_project/backend/app/api/v1/endpoints/search.py",
+            "web_project/backend/app/api/v1/endpoints/stats.py",
+            "web_project/backend/app/api/v1/endpoints/users.py",
+            "web_project/backend/app/config.py",
+            "web_project/backend/app/core/auth.py",
+            "web_project/backend/app/core/security.py",
+            "web_project/backend/app/database.py",
+            "web_project/backend/app/main.py",
+            "web_project/backend/app/models.py",
+            "web_project/backend/app/schemas.py",
+            "web_project/backend/app/services/elasticsearch_service.py",
+            "web_project/backend/offline/config.py",
+            "web_project/backend/offline/feature/preprocess_ranking.py",
+            "web_project/backend/offline/feature/preprocess_retrieval.py",
+            "web_project/backend/offline/pipeline.py",
+            "web_project/backend/offline/storage/local_deploy.py",
+            "web_project/backend/offline/storage/redis_ingest.py",
+            "web_project/backend/offline/training/train_ranking.py",
+            "web_project/backend/offline/training/train_retrieval.py",
+            "web_project/backend/online/cold_start/base.py",
+            "web_project/backend/online/cold_start/detector.py",
+            "web_project/backend/online/cold_start/popular.py",
+            "web_project/backend/online/cold_start/preferred_genre.py",
+            "web_project/backend/online/cold_start/service.py",
+            "web_project/backend/online/cold_start/ucb_genre.py",
+            "web_project/backend/online/pipeline.py",
+            "web_project/backend/online/ranking/base.py",
+            "web_project/backend/online/ranking/deepfm.py",
+            "web_project/backend/online/ranking/resource_manager.py",
+            "web_project/backend/online/ranking/service.py",
+            "web_project/backend/online/recall/base.py",
+            "web_project/backend/online/recall/item_based.py",
+            "web_project/backend/online/recall/resource_manager.py",
+            "web_project/backend/online/recall/service.py",
+            "web_project/backend/online/recall/trending.py",
+            "web_project/backend/online/recall/youtubednn.py",
+            "web_project/backend/online/reranking/base.py",
+            "web_project/backend/online/reranking/dispersion.py",
+            "web_project/backend/online/reranking/service.py",
+            "web_project/backend/scripts/index_movies_elasticsearch.py",
+            "web_project/backend/scripts/ingest_data_to_database.py"
+          ]
+        }
+      ],
+      "method_cards": [
+        {
+          "id": "afm",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/afm.py",
+          "mechanism": "Forms elementwise products for feature pairs, learns an attention weight for each pair, pools them, and adds an optional linear logit.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and fields, replace learned pair attention with uniform pair pooling while retaining the linear term and embedding width.",
+          "failure_signals": "No held-out gain over uniform pooling, or attention concentrates on unstable rare pairs.",
+          "implementation_boundary": "FunRec supplies a TensorFlow pointwise builder; the transferable idea is pair weighting, not its training code or a causal effect estimate."
+        },
+        {
+          "id": "apg",
+          "family_id": "multiscenario",
+          "source_model": "src/funrec/models/apg.py",
+          "mechanism": "Each APG layer uses a scene embedding to generate its central low-rank transformation while surrounding projections can be shared across scenes.",
+          "requires": [
+            "tabular_features",
+            "scenario_context",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split, hold layer widths fixed and replace the scene-conditioned generated matrix with one shared matrix.",
+          "failure_signals": "No gain within sufficiently supported scenes, or gains vanish on held-out scene slices.",
+          "implementation_boundary": "FunRec implements an APGLayer-based ranker; using the idea elsewhere requires meaningful scene IDs and a new adapter."
+        },
+        {
+          "id": "autoint",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/autoint.py",
+          "mechanism": "Stacks multi-head self-attention over field embeddings so the representation of each field can depend on other fields before prediction.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and embeddings, remove the attention interaction stack and feed pooled fields to the same prediction head.",
+          "failure_signals": "No gain over pooled fields at matched parameter and latency budgets.",
+          "implementation_boundary": "FunRec provides a field-attention TensorFlow ranker; this card proposes a controlled interaction experiment, not source-code reuse."
+        },
+        {
+          "id": "biassvd",
+          "family_id": "collaborative_retrieval",
+          "source_model": "src/funrec/models/biassvd.py",
+          "mechanism": "Combines a user-factor/item-factor dot product with learned user, item, and global bias terms; the source then applies a sigmoid prediction head.",
+          "requires": [
+            "user_item_interactions",
+            "item_catalog",
+            "labeled_user_item_pairs"
+          ],
+          "comparison": "On the same interaction split, remove only the three bias terms from the factor model while keeping factor dimension and classifier head fixed.",
+          "failure_signals": "Biases do not improve held-out ranking or merely encode popularity without cohort gains.",
+          "implementation_boundary": "FunRec's executable is a TensorFlow pair classifier with exportable towers; its latent-factor comparison does not imply calibrated rating prediction."
+        },
+        {
+          "id": "dcn",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/dcn.py",
+          "mechanism": "A cross network repeatedly combines the original input with the current state to form explicit bounded-degree crosses, alongside a deep MLP branch.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and fields, turn off only the cross branch while retaining the deep branch and linear features.",
+          "failure_signals": "No out-of-sample gain or the cross branch raises latency beyond the fixed budget.",
+          "implementation_boundary": "FunRec supplies its own DCN TensorFlow layer; transfer the cross-branch hypothesis, not a claim that every input cross is useful."
+        },
+        {
+          "id": "deepfm",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/deepfm.py",
+          "mechanism": "Adds an FM second-order embedding interaction logit to a DNN branch and an optional linear term using the same field inputs.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and shared embeddings, remove only the FM branch while keeping the DNN and linear term fixed.",
+          "failure_signals": "The explicit second-order branch brings no held-out lift after capacity is controlled.",
+          "implementation_boundary": "FunRec's executable ranker is task-specific; its transferable question is whether second-order crosses add value beyond the deep branch."
+        },
+        {
+          "id": "dien",
+          "family_id": "sequence_ranking",
+          "source_model": "src/funrec/models/dien.py",
+          "mechanism": "A GRU extracts behavior states, optionally learns from next-behavior positive/negative auxiliary pairs, then target-conditioned attention controls a second interest-evolution GRU.",
+          "requires": [
+            "event_sequence",
+            "target_item_features",
+            "observed_outcome_labels",
+            "negative_behavior_samples"
+          ],
+          "comparison": "On the same temporal split, disable only the auxiliary next-behavior loss while keeping the GRU evolution and target attention fixed.",
+          "failure_signals": "Auxiliary supervision yields no held-out gain or temporal leakage appears in sampled next behaviors.",
+          "implementation_boundary": "FunRec includes AIGRU, AGRU, and AUGRU variants; the comparison uses its optional auxiliary path and does not turn row aggregates into events."
+        },
+        {
+          "id": "din",
+          "family_id": "sequence_ranking",
+          "source_model": "src/funrec/models/din.py",
+          "mechanism": "Computes target-aware attention over a user's historical item embeddings and appends the weighted history representation to ordinary ranking features.",
+          "requires": [
+            "event_sequence",
+            "target_item_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same temporal split, replace target-aware history attention with a masked mean of the identical prior events.",
+          "failure_signals": "No gain versus history pooling or attention uses events after the candidate decision.",
+          "implementation_boundary": "FunRec implements a pointwise DIN builder with paired target/history feature columns; the target-conditioned mechanism requires real candidate items."
+        },
+        {
+          "id": "dsin",
+          "family_id": "sequence_ranking",
+          "source_model": "src/funrec/models/dsin.py",
+          "mechanism": "Encodes behavior within sessions using multi-head attention, models interactions among session summaries with a bidirectional LSTM, and activates both views against the target item.",
+          "requires": [
+            "sessionized_event_sequence",
+            "target_item_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same temporal split, remove only the inter-session LSTM while retaining session boundaries, intra-session attention, and target activation.",
+          "failure_signals": "No gain from session interaction or session boundaries cannot be defined before the decision time.",
+          "implementation_boundary": "FunRec expects explicit per-session feature slots; a transferable session hypothesis does not justify synthesizing sessions from aggregate rows."
+        },
+        {
+          "id": "dssm",
+          "family_id": "two_tower_matching",
+          "source_model": "src/funrec/models/dssm.py",
+          "mechanism": "Independent user and item MLP towers produce L2-normalized vectors, whose cosine similarity feeds a binary prediction layer.",
+          "requires": [
+            "user_features",
+            "item_catalog",
+            "labeled_user_item_pairs"
+          ],
+          "comparison": "On the same user-item split, keep input fields and vector size fixed and replace the nonlinear towers with linear projections.",
+          "failure_signals": "No recall gain at a fixed candidate count, or serving/index cost exceeds the budget.",
+          "implementation_boundary": "FunRec exports both towers; adopting the representation requires an indexing and negative-sampling contract in the destination system."
+        },
+        {
+          "id": "eges",
+          "family_id": "item_representation",
+          "source_model": "src/funrec/models/eges.py",
+          "mechanism": "Learns an item vector as an item-specific weighted sum of ID and side-feature embeddings, then scores it against a context-item embedding; separate helpers form graph-walk context pairs.",
+          "requires": [
+            "item_catalog",
+            "item_side_attributes",
+            "item_context_pairs"
+          ],
+          "comparison": "On the same context-pair split, replace item-specific attention weights with an unweighted mean while retaining embeddings and negatives.",
+          "failure_signals": "No cold-item or recall gain, or shuffled context pairs perform as well as true pairs.",
+          "implementation_boundary": "FunRec's builder consumes prepared context pairs and has separate graph utilities; it does not supply a general end-to-end graph pipeline."
+        },
+        {
+          "id": "esmm",
+          "family_id": "multiobjective",
+          "source_model": "src/funrec/models/esmm.py",
+          "mechanism": "Learns click probability and post-click conversion probability in separate towers, and constrains joint click-conversion probability to their product.",
+          "requires": [
+            "impression_click_labels",
+            "joint_click_conversion_labels",
+            "tabular_features"
+          ],
+          "comparison": "On the same impression split and inputs, replace only the product-constrained joint head with an unconstrained direct joint head.",
+          "failure_signals": "The product constraint does not improve joint-outcome calibration or fails on low-click slices.",
+          "implementation_boundary": "FunRec outputs click and joint probabilities; interpreting its internal conversion tower requires observed click and joint labels, not an arbitrary second target."
+        },
+        {
+          "id": "fibinet",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/fibinet.py",
+          "mechanism": "A squeeze-excitation block reweights fields; bilinear pair interactions are computed on both original and reweighted embeddings before a DNN.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split, remove only the squeeze-excitation path while retaining the original bilinear interaction branch and DNN.",
+          "failure_signals": "Reweighting brings no held-out gain over original bilinear interactions at the same latency target.",
+          "implementation_boundary": "FunRec provides the particular SENet and bilinear layers; the transferable idea is testing field reweighting with a controlled interaction baseline."
+        },
+        {
+          "id": "fm",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/fm.py",
+          "mechanism": "Computes a factorization-machine second-order interaction over field embeddings and optionally adds first-order linear logits.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and fields, set the FM interaction contribution to zero while keeping the first-order term and loss fixed.",
+          "failure_signals": "Second-order interactions provide no held-out lift or rely on post-decision fields.",
+          "implementation_boundary": "FunRec wraps the FM term in a binary ranking head; its source is an executable example, not a reusable cross-scene evaluation harness."
+        },
+        {
+          "id": "fm_recall",
+          "family_id": "two_tower_matching",
+          "source_model": "src/funrec/models/fm_recall.py",
+          "mechanism": "Factorizes an FM-like matching score into a user vector of a constant plus summed user embeddings and an item vector of item linear/item-item interaction terms plus summed item embeddings.",
+          "requires": [
+            "user_features",
+            "item_catalog",
+            "labeled_user_item_pairs"
+          ],
+          "comparison": "On the same user-item split, remove only the item-side FM interaction scalar while holding vector width and recall protocol fixed.",
+          "failure_signals": "No recall or coverage gain over the simpler dot-product towers, or item vectors cannot be indexed consistently.",
+          "implementation_boundary": "FunRec supplies explicit user/item towers for this decomposition; it is not a generic implementation of all FM cross terms."
+        },
+        {
+          "id": "funksvd",
+          "family_id": "collaborative_retrieval",
+          "source_model": "src/funrec/models/funksvd.py",
+          "mechanism": "Learns user and item latent ID vectors, takes their dot product, then uses a sigmoid classification head in the FunRec implementation.",
+          "requires": [
+            "user_item_interactions",
+            "item_catalog",
+            "labeled_user_item_pairs"
+          ],
+          "comparison": "On the same interaction split, shuffle only training user IDs while keeping item IDs, labels, factor dimension, and evaluation users fixed.",
+          "failure_signals": "Latent factors do not improve held-out retrieval beyond popularity or collapse on sparse users.",
+          "implementation_boundary": "FunRec's executable is a pair classifier with separately exportable ID embeddings; the dot-product idea does not itself predict ratings."
+        },
+        {
+          "id": "hmoe",
+          "family_id": "multiscenario",
+          "source_model": "src/funrec/models/hmoe.py",
+          "mechanism": "Shared experts feed gated domain towers; a domain-weight network mixes their outputs with stop-gradient on cross-domain contributions before one binary prediction.",
+          "requires": [
+            "scenario_context",
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and domain slices, disable only cross-domain tower contributions while preserving the shared experts and own-domain tower.",
+          "failure_signals": "Transfer adds no gain in low-support domains or damages well-supported domains.",
+          "implementation_boundary": "This is a single-output multi-domain builder. Its nonshared-gate branch repeats each gate result while filling tower inputs, so indexed towers consume the first gate mixture; reimplement and verify the intended routing before transfer."
+        },
+        {
+          "id": "hstu",
+          "family_id": "scaling_architecture",
+          "source_model": "src/funrec/models/hstu.py",
+          "mechanism": "Runs causal sequence blocks with projected query/key/value interactions, optional relative-position or time-interval bias, gated output projection, and next-item sampled-negative training.",
+          "requires": [
+            "event_sequence",
+            "event_timestamps",
+            "item_catalog",
+            "compute_budget"
+          ],
+          "comparison": "On the same next-item split and sequence length, add only time-interval bias to the dot-product block while holding depth, negatives, and compute budget fixed.",
+          "failure_signals": "Time bias gives no quality gain or increases training/serving cost beyond the agreed budget.",
+          "implementation_boundary": "FunRec offers configurable HstuLayer modes; timestamps are needed for the time-bias ablation, and one run cannot establish a scaling law."
+        },
+        {
+          "id": "item2vec",
+          "family_id": "item_representation",
+          "source_model": "src/funrec/models/item2vec.py",
+          "mechanism": "Fits Gensim Word2Vec to ordered item histories using local context windows; the source forms a user vector by averaging the learned vectors of prior items.",
+          "requires": [
+            "event_sequence",
+            "item_catalog"
+          ],
+          "comparison": "On the same temporal split and corpus, change only the Word2Vec context window from one item to the planned width while keeping vector dimension fixed.",
+          "failure_signals": "Context vectors do not improve recall, or chronology-shuffled histories perform equally well.",
+          "implementation_boundary": "FunRec's class is a Word2Vec wrapper and mean-pooling helper, not a complete retrieval trainer or a guaranteed skip-gram configuration."
+        },
+        {
+          "id": "item_cf",
+          "family_id": "collaborative_retrieval",
+          "source_model": "src/funrec/models/item_cf.py",
+          "mechanism": "Builds item-item cosine similarity from positive co-interaction counts and sums neighbor similarity across a user's previously interacted items.",
+          "requires": [
+            "user_item_interactions",
+            "item_catalog",
+            "positive_interaction_labels"
+          ],
+          "comparison": "On the same temporal split and neighbor count, replace cosine-normalized item co-occurrence with raw co-occurrence counts using identical history cutoffs.",
+          "failure_signals": "No recall gain over popularity or popularity-dominated neighbors reduce catalog coverage.",
+          "implementation_boundary": "FunRec supplies a standalone positive-only ItemCF class; absent exposures are not negative preferences or randomized controls."
+        },
+        {
+          "id": "m2m",
+          "family_id": "multiobjective",
+          "source_model": "src/funrec/models/m2m.py",
+          "mechanism": "Creates task, expert, and scenario views; a scenario-generated meta unit weights experts for each task and a scenario-conditioned meta tower produces each task output.",
+          "requires": [
+            "multiple_outcomes",
+            "scenario_context",
+            "tabular_features"
+          ],
+          "comparison": "On the same split, replace only the scenario view supplied to meta attention and towers with a shared constant while keeping tasks and experts fixed.",
+          "failure_signals": "No gain across observed task-by-scenario cells or severe negative transfer in small cells.",
+          "implementation_boundary": "FunRec implements this multi-scenario multi-task builder; optional sequence input does not remove its need for real task labels and scenario context."
+        },
+        {
+          "id": "mind",
+          "family_id": "interest_retrieval",
+          "source_model": "src/funrec/models/mind.py",
+          "mechanism": "Dynamic-routing capsules turn one user history into several interest vectors; label-aware attention selects a target-relevant interest for sampled-softmax training.",
+          "requires": [
+            "event_sequence",
+            "item_catalog",
+            "target_item_ids"
+          ],
+          "comparison": "On the same next-item split, restrict the capsule count to one while keeping embeddings, negatives, and candidate set fixed.",
+          "failure_signals": "Multiple interests do not improve recall or merely duplicate one another.",
+          "implementation_boundary": "FunRec exports several user interest vectors for retrieval; target-aware attention is used in training and does not provide a free target at retrieval time."
+        },
+        {
+          "id": "mmoe",
+          "family_id": "multiobjective",
+          "source_model": "src/funrec/models/mmoe.py",
+          "mechanism": "Several shared experts process the same features; each task has its own softmax gate over experts followed by a task-specific prediction tower.",
+          "requires": [
+            "multiple_outcomes",
+            "tabular_features"
+          ],
+          "comparison": "On the same split and task labels, replace only task-specific gates with one shared gate while keeping experts and towers fixed.",
+          "failure_signals": "No primary-task gain or one task degrades materially from negative transfer.",
+          "implementation_boundary": "FunRec's MMoE code expects observed labels per output; gate diversity is a hypothesis to test, not evidence of causal task dependence."
+        },
+        {
+          "id": "nfm",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/nfm.py",
+          "mechanism": "Bi-interaction pooling compresses second-order embedding products into a vector that a DNN maps to a prediction, with an optional linear term.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split, replace only bi-interaction pooling with summed embeddings before the same DNN.",
+          "failure_signals": "No gain beyond simple pooled embeddings at comparable model size.",
+          "implementation_boundary": "FunRec gives a pointwise NFM builder; the comparison concerns interaction representation rather than a different optimizer or target."
+        },
+        {
+          "id": "pepnet",
+          "family_id": "multiscenario",
+          "source_model": "src/funrec/models/pepnet.py",
+          "mechanism": "EPNet gates input embeddings using prior context, and PPNet gates intermediate layers separately for each output head using another context view.",
+          "requires": [
+            "scenario_context",
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split, replace only EPNet's context-conditioned embedding gate with an identity gate while keeping PPNet and heads fixed.",
+          "failure_signals": "No slice-level gain from embedding personalization or gates collapse to constants.",
+          "implementation_boundary": "FunRec's EPNet/PPNet builder can emit multiple heads; a destination must supply real prior context and any auxiliary head labels it enables."
+        },
+        {
+          "id": "ple",
+          "family_id": "multiobjective",
+          "source_model": "src/funrec/models/ple.py",
+          "mechanism": "Stacks extraction levels with both task-specific and shared experts; task gates mix their own and shared experts while a shared gate feeds the next level.",
+          "requires": [
+            "multiple_outcomes",
+            "tabular_features"
+          ],
+          "comparison": "On the same split and tasks, tie task-specific expert weights across tasks while retaining expert slots, gates, and task towers.",
+          "failure_signals": "Task-specific experts do not improve the primary outcome or harm a secondary task.",
+          "implementation_boundary": "FunRec implements a particular CGC stack; its complexity is transferable only when several valid outcomes are observed."
+        },
+        {
+          "id": "pnn",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/pnn.py",
+          "mechanism": "A product layer constructs inner and/or outer products between field embeddings before a DNN and optional linear term.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split, disable only the outer-product path while retaining inner products, the DNN, and the same fields.",
+          "failure_signals": "Outer products add no held-out gain relative to their compute and memory cost.",
+          "implementation_boundary": "FunRec exposes inner/outer switches in its PNN layer; the card asks which product path helps under a fixed data contract."
+        },
+        {
+          "id": "prm",
+          "family_id": "slate_reranking",
+          "source_model": "src/funrec/models/prm.py",
+          "mechanism": "Adds position embeddings to user and candidate-slate features, applies Transformer encoder blocks across positions, and softmax-normalizes position scores.",
+          "requires": [
+            "candidate_slates",
+            "positionwise_feedback",
+            "user_features"
+          ],
+          "comparison": "On the same slate split and slate length, remove only cross-position Transformer attention while keeping position features and output normalization.",
+          "failure_signals": "No slate-metric gain over independent position scoring or benefits disappear after position-bias checks.",
+          "implementation_boundary": "FunRec implements a PRM scorer, not a diversity objective or a new candidate generator; candidate sets and labels must exist."
+        },
+        {
+          "id": "prs",
+          "family_id": "slate_reranking",
+          "source_model": "src/funrec/models/prs.py",
+          "mechanism": "Per-position CTR and continuation heads score a slate; FPSA beam search proposes permutations and a second pass selects the preferred ordering.",
+          "requires": [
+            "candidate_slates",
+            "positionwise_feedback",
+            "continuation_feedback"
+          ],
+          "comparison": "On the same slate split, fixed head predictions, and objective weights, compare FPSA beam size one with a larger beam size.",
+          "failure_signals": "A wider search brings no slate reward gain or raises inference cost beyond the limit.",
+          "implementation_boundary": "FunRec defines heads and an inference helper; training both heads needs aligned labels, and its example config alone does not prove that contract."
+        },
+        {
+          "id": "sasrec",
+          "family_id": "interest_retrieval",
+          "source_model": "src/funrec/models/sasrec.py",
+          "mechanism": "Position-aware causal self-attention encodes each item-history prefix for next-item prediction with sampled negative items.",
+          "requires": [
+            "event_sequence",
+            "item_catalog",
+            "next_item_targets"
+          ],
+          "comparison": "On the same temporal next-item split and negative sampler, replace only causal self-attention with a history mean at equal embedding width.",
+          "failure_signals": "Ordered attention does not outperform mean history or sequence shuffling leaves quality unchanged.",
+          "implementation_boundary": "FunRec supplies a sequence training graph and item-vector evaluator; it needs ordered histories rather than one aggregate row per user."
+        },
+        {
+          "id": "sdm",
+          "family_id": "interest_retrieval",
+          "source_model": "src/funrec/models/sdm.py",
+          "mechanism": "Builds short-term interest with LSTM, self-attention, and user attention; separately pools long-term behavior and gates both into a retrieval vector.",
+          "requires": [
+            "short_and_long_event_histories",
+            "item_catalog",
+            "next_item_targets"
+          ],
+          "comparison": "On the same next-item split, replace only learned short/long gated fusion with a fixed mean while preserving both history encoders.",
+          "failure_signals": "Learned fusion gives no recall gain or the short-history window leaks the target event.",
+          "implementation_boundary": "FunRec's SDM builder uses distinct short and long history feature groups and sampled softmax; transfer needs those histories to be defined."
+        },
+        {
+          "id": "shared_bottom",
+          "family_id": "multiobjective",
+          "source_model": "src/funrec/models/shared_bottom.py",
+          "mechanism": "One shared MLP representation feeds a separate prediction tower for every observed task.",
+          "requires": [
+            "multiple_outcomes",
+            "tabular_features"
+          ],
+          "comparison": "On the same split and task labels, compare the shared representation with separate per-task MLPs at a matched parameter budget.",
+          "failure_signals": "Sharing does not improve the primary task or causes measurable negative transfer.",
+          "implementation_boundary": "FunRec provides a multi-output TensorFlow baseline; its outputs require distinct measured labels and fixed task definitions."
+        },
+        {
+          "id": "star",
+          "family_id": "multiscenario",
+          "source_model": "src/funrec/models/star.py",
+          "mechanism": "Domain-partitioned normalization and a star-topology FCN combine shared and domain-specific transformations; an auxiliary domain-aware branch also contributes to the logit.",
+          "requires": [
+            "scenario_context",
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and domains, replace domain-partitioned normalization with shared normalization while retaining the star FCN and auxiliary branch.",
+          "failure_signals": "No improvement on supported domains or small-domain calibration worsens.",
+          "implementation_boundary": "FunRec requires a discrete domain feature for this builder; anonymous columns do not establish valid scenario membership."
+        },
+        {
+          "id": "swing",
+          "family_id": "collaborative_retrieval",
+          "source_model": "src/funrec/models/swing.py",
+          "mechanism": "Scores item pairs through pairs of common users, downweighting active users and user pairs with many shared items before neighbor aggregation.",
+          "requires": [
+            "user_item_interactions",
+            "item_catalog",
+            "positive_interaction_labels"
+          ],
+          "comparison": "On the same temporal split and neighbor count, remove only Swing's active-user downweighting while retaining its user-pair overlap denominator.",
+          "failure_signals": "No gain on held-out retrieval or sparse pairs make the similarity estimate unstable.",
+          "implementation_boundary": "FunRec's standalone Swing class uses positive interactions and at least two common users per scored pair; it does not infer counterfactual preference."
+        },
+        {
+          "id": "user_cf",
+          "family_id": "collaborative_retrieval",
+          "source_model": "src/funrec/models/user_cf.py",
+          "mechanism": "Builds user-user cosine similarity from positive shared-item counts, then recommends items interacted with by a user's nearest neighbors.",
+          "requires": [
+            "user_item_interactions",
+            "item_catalog",
+            "positive_interaction_labels"
+          ],
+          "comparison": "On the same temporal split and neighbor count, replace cosine-normalized user co-occurrence with raw common-item counts using identical history cutoffs.",
+          "failure_signals": "No recall gain over popularity or neighbor coverage collapses for sparse users.",
+          "implementation_boundary": "FunRec provides a standalone positive-only UserCF class; lack of exposure cannot be interpreted as negative feedback."
+        },
+        {
+          "id": "wide_deep",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/wide_deep.py",
+          "mechanism": "Adds a linear wide term and configured explicit cross logits to a deep feature-embedding MLP before binary prediction.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split and deep branch, remove only configured explicit cross logits while retaining the linear wide term.",
+          "failure_signals": "Manual crosses provide no held-out lift or depend on unavailable/post-decision fields.",
+          "implementation_boundary": "FunRec executes configured crosses in a pointwise ranker; cross definitions must be redesigned for the destination schema."
+        },
+        {
+          "id": "xdeepfm",
+          "family_id": "feature_interactions",
+          "source_model": "src/funrec/models/xdeepfm.py",
+          "mechanism": "Combines a compressed interaction network that explicitly creates vector-wise high-order crosses with a DNN branch and optional linear term.",
+          "requires": [
+            "tabular_features",
+            "observed_outcome_labels"
+          ],
+          "comparison": "On the same split, remove only the CIN branch while keeping the DNN, linear term, and embedding inputs fixed.",
+          "failure_signals": "High-order crosses add no held-out gain or exceed the latency budget.",
+          "implementation_boundary": "FunRec's CIN implementation is an executable ranking component; the portable claim is a controlled high-order interaction test."
+        },
+        {
+          "id": "youtubednn",
+          "family_id": "two_tower_matching",
+          "source_model": "src/funrec/models/youtubednn.py",
+          "mechanism": "A DNN maps user features and optional pooled history to a normalized user vector; sampled softmax trains it against an item embedding table.",
+          "requires": [
+            "user_features",
+            "item_catalog",
+            "positive_target_item_ids"
+          ],
+          "comparison": "On the same next-item split, remove only pooled history from the user tower while keeping item vectors, negatives, and retrieval K fixed.",
+          "failure_signals": "History adds no recall or gains vanish when targets are excluded from pre-cutoff history.",
+          "implementation_boundary": "FunRec exports user and item embeddings for evaluation; applying them needs a matched item index and sampled-softmax target contract."
+        }
+      ]
+    },
+    "applicability": [
+      {
+        "family_id": "task_framing",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "family_id": "collaborative_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "family_id": "item_representation",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "family_id": "two_tower_matching",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "family_id": "interest_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "family_id": "streaming_index",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "family_id": "sequence_ranking",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "event_sequence"
+        ],
+        "reason": "requires event_sequence"
+      },
+      {
+        "family_id": "multiobjective",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "multiple_outcomes"
+        ],
+        "reason": "requires multiple_outcomes"
+      },
+      {
+        "family_id": "multiscenario",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "scenario_context"
+        ],
+        "reason": "requires scenario_context"
+      },
+      {
+        "family_id": "slate_reranking",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['reranking']"
+      },
+      {
+        "family_id": "feedback_bias",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "family_id": "cold_start",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "cold_start_segments"
+        ],
+        "reason": "requires cold_start_segments"
+      },
+      {
+        "family_id": "generative_foundations",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['generation']"
+      },
+      {
+        "family_id": "scaling_architecture",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['ranking', 'generation']"
+      },
+      {
+        "family_id": "generative_applications",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['generation', 'search', 'advertising']"
+      },
+      {
+        "family_id": "reasoning_recommendation",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['generation', 'ranking']"
+      },
+      {
+        "family_id": "diffusion_recommendation",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['generation', 'ranking']"
+      },
+      {
+        "family_id": "production_lifecycle",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "deployment_context"
+        ],
+        "reason": "requires deployment_context"
+      }
+    ],
+    "method_applicability": [
+      {
+        "method_id": "afm",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "apg",
+        "family_id": "multiscenario",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "scenario_context"
+        ],
+        "reason": "requires scenario_context"
+      },
+      {
+        "method_id": "autoint",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "biassvd",
+        "family_id": "collaborative_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "dcn",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "deepfm",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "dien",
+        "family_id": "sequence_ranking",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "event_sequence",
+          "negative_behavior_samples",
+          "target_item_features"
+        ],
+        "reason": "requires event_sequence, negative_behavior_samples, target_item_features"
+      },
+      {
+        "method_id": "din",
+        "family_id": "sequence_ranking",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "event_sequence",
+          "target_item_features"
+        ],
+        "reason": "requires event_sequence, target_item_features"
+      },
+      {
+        "method_id": "dsin",
+        "family_id": "sequence_ranking",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "event_sequence",
+          "sessionized_event_sequence",
+          "target_item_features"
+        ],
+        "reason": "requires event_sequence, sessionized_event_sequence, target_item_features"
+      },
+      {
+        "method_id": "dssm",
+        "family_id": "two_tower_matching",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "eges",
+        "family_id": "item_representation",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "esmm",
+        "family_id": "multiobjective",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "impression_click_labels",
+          "joint_click_conversion_labels",
+          "multiple_outcomes"
+        ],
+        "reason": "requires impression_click_labels, joint_click_conversion_labels, multiple_outcomes"
+      },
+      {
+        "method_id": "fibinet",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "fm",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "fm_recall",
+        "family_id": "two_tower_matching",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "funksvd",
+        "family_id": "collaborative_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "hmoe",
+        "family_id": "multiscenario",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "scenario_context"
+        ],
+        "reason": "requires scenario_context"
+      },
+      {
+        "method_id": "hstu",
+        "family_id": "scaling_architecture",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['ranking', 'generation']"
+      },
+      {
+        "method_id": "item2vec",
+        "family_id": "item_representation",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "item_cf",
+        "family_id": "collaborative_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "m2m",
+        "family_id": "multiobjective",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "multiple_outcomes",
+          "scenario_context"
+        ],
+        "reason": "requires multiple_outcomes, scenario_context"
+      },
+      {
+        "method_id": "mind",
+        "family_id": "interest_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "mmoe",
+        "family_id": "multiobjective",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "multiple_outcomes"
+        ],
+        "reason": "requires multiple_outcomes"
+      },
+      {
+        "method_id": "nfm",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "pepnet",
+        "family_id": "multiscenario",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "scenario_context"
+        ],
+        "reason": "requires scenario_context"
+      },
+      {
+        "method_id": "ple",
+        "family_id": "multiobjective",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "multiple_outcomes"
+        ],
+        "reason": "requires multiple_outcomes"
+      },
+      {
+        "method_id": "pnn",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "prm",
+        "family_id": "slate_reranking",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['reranking']"
+      },
+      {
+        "method_id": "prs",
+        "family_id": "slate_reranking",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['reranking']"
+      },
+      {
+        "method_id": "sasrec",
+        "family_id": "interest_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "sdm",
+        "family_id": "interest_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "shared_bottom",
+        "family_id": "multiobjective",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "multiple_outcomes"
+        ],
+        "reason": "requires multiple_outcomes"
+      },
+      {
+        "method_id": "star",
+        "family_id": "multiscenario",
+        "status": "needs_data",
+        "missing_capabilities": [
+          "scenario_context"
+        ],
+        "reason": "requires scenario_context"
+      },
+      {
+        "method_id": "swing",
+        "family_id": "collaborative_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "user_cf",
+        "family_id": "collaborative_retrieval",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      },
+      {
+        "method_id": "wide_deep",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "xdeepfm",
+        "family_id": "feature_interactions",
+        "status": "ready",
+        "missing_capabilities": [],
+        "reason": "requirements available"
+      },
+      {
+        "method_id": "youtubednn",
+        "family_id": "two_tower_matching",
+        "status": "other_stage",
+        "missing_capabilities": [],
+        "reason": "task stage 'policy' is outside ['retrieval']"
+      }
+    ],
+    "source_commit": "bc3690079ccebcdb224e7ba653d406b5a731058d",
+    "task_snapshot": {
+      "task_id": "couponevo-policy",
+      "dataset_digest": "9518e775d84958ef1865d5a593b5a1115cd91bc23a594ce5e24015a4a714977a",
+      "stage": "policy",
+      "fields": [
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6",
+        "V7"
+      ],
+      "capabilities": [
+        "tabular_features",
+        "observed_outcome_labels",
+        "assignment_or_exposure_propensity"
+      ],
+      "objective": {
+        "name": "conversion",
+        "direction": "max"
+      }
+    },
+    "dataset_profile": {
+      "statistics_partition": "train",
+      "training_rows": 50720,
+      "features": {
+        "V1": {
+          "dtype": "int64",
+          "unique_count": 4,
+          "missing_fraction": 0.0
+        },
+        "V2": {
+          "dtype": "float64",
+          "unique_count": 50714,
+          "missing_fraction": 0.0
+        },
+        "V3": {
+          "dtype": "float64",
+          "unique_count": 40,
+          "missing_fraction": 0.0
+        },
+        "V4": {
+          "dtype": "int64",
+          "unique_count": 2,
+          "missing_fraction": 0.0
+        },
+        "V5": {
+          "dtype": "int64",
+          "unique_count": 4,
+          "missing_fraction": 0.0
+        },
+        "V6": {
+          "dtype": "int64",
+          "unique_count": 4,
+          "missing_fraction": 0.0
+        },
+        "V7": {
+          "dtype": "int64",
+          "unique_count": 2,
+          "missing_fraction": 0.0
+        }
+      },
+      "outcomes": {
+        "conversion": "purchase"
+      },
+      "cost": "assumed_fixed_send",
+      "feature_timing": "declared_only",
+      "assignment_probability": 0.5,
+      "contract": "One row per assignment unit; binary treatment; prediction receives declared features only.",
+      "semantics": "Dtypes and cardinalities do not establish business meaning, sequence order, or availability before treatment."
+    }
+  },
+  "experience": [],
+  "baseline": {
+    "id": "seed",
+    "status": "evaluated",
+    "candidate": "steps/seed/candidate.py",
+    "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+    "score": 0.0033122375347489205,
+    "report": {
+      "run_id": "bb06aad5f861c57a",
+      "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+      "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+      "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+      "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+      "prediction_sha256": "f5c9eddeca667c8d4a32a4931246a5e3417ac0c4892d13447fa1cae23e4affee",
+      "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+      "budget": {
+        "kind": "cost",
+        "value": 0.03
+      },
+      "seed": 42,
+      "model_device": "cuda",
+      "cuda_peak_bytes": 35390976,
+      "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+      "holdout": "validation",
+      "holdout_size": 16907,
+      "features": [
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6",
+        "V7"
+      ],
+      "outcome_columns": {
+        "conversion": "purchase"
+      },
+      "data_validation": {
+        "feature_timing": "declared_only",
+        "assignment_probability": "documented"
+      },
+      "available_outcomes": [
+        "conversion"
+      ],
+      "unavailable_objectives": [
+        "active",
+        "net_margin"
+      ],
+      "policies": {
+        "conversion": {
+          "selected_count": 3381,
+          "effects": {
+            "conversion": {
+              "mean": 0.0033122375347489205,
+              "lower": 0.0017066163250949017,
+              "upper": 0.004917858744402939,
+              "se": 0.0008191944947214382
+            }
+          },
+          "predicted_cost_per_unit": 0.02999645117406991,
+          "assumed_cost": 0.02999645117406991,
+          "delta_vs_random": {
+            "conversion": 0.002011001360383273
+          }
+        },
+        "random": {
+          "selected_count": 3381,
+          "effects": {
+            "conversion": {
+              "mean": 0.0013012361743656475,
+              "lower": -0.00028821876140729076,
+              "upper": 0.0028906911101385857,
+              "se": 0.0008109463958025196
+            }
+          },
+          "predicted_cost_per_unit": 0.029996451174069908,
+          "assumed_cost": 0.029996451174069908
+        }
+      },
+      "ranking_diagnostics": {
+        "conversion": {
+          "auuc": 0.006851530381242987,
+          "qini": 0.0025337921663024293
+        }
+      },
+      "policy_sha256": {
+        "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b",
+        "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+      },
+      "paired_vs_random": {
+        "conversion": {
+          "conversion": {
+            "mean": 0.0020110013603832732,
+            "lower": 0.00011335906060234492,
+            "upper": 0.003908643660164202,
+            "se": 0.0009681848468270042
+          }
+        }
+      },
+      "notes": [
+        "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+        "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+        "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+        "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+        "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+        "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。"
+      ],
+      "feature_gaps": null
+    }
+  },
+  "steps": [
+    {
+      "id": "step-001",
+      "status": "evaluated",
+      "candidate": "steps/step-001/candidate.py",
+      "candidate_sha256": "9a8eb7b17513a97c7978e91ba22bebbeecb398c70c0f336ccec2b0a338c1b529",
+      "operator": "improve",
+      "parent_ids": [
+        "seed"
+      ],
+      "hypothesis": "The conversion effect surface contains interactions/thresholds that a per-arm additive linear ridge cannot represent; estimating the effect directly by residualizing out a shared outcome surface with a nonlinear torch head will rank the top-20% policy better than the seed's linear T-learner.",
+      "expected_result": "Selected top-20% (3381 units, ~0.03 predicted cost per unit) mean conversion effect above the seed's 0.003312 with the paired-vs-random 95% lower bound remaining positive, and AUUC/Qini not below the seed values (0.00685/0.00253).",
+      "approach": "Replace the additive linear T-learner with a residualized direct-effect estimator: cross-fit a torch ridge outcome surface on the pooled randomized arms, then fit a torch MLP effect head on the Robinson/R-learner residual objective so capacity is spent on interactions in the effect surface instead of arm-level main effects. Cost model kept as the parent's linear ridge on the treated arm so the budget comparison is unchanged.",
+      "research": {
+        "direction": "Residualized direct-effect (R-learner) estimation with a nonlinear torch effect head, instead of two separate additive linear arm regressions",
+        "mechanism": "Cross-fit a torch ridge outcome surface m(X) on the pooled randomized arms, then fit a torch MLP tau(X) on the residual objective (Y - m(X) - (T - p) * tau(X))^2 with weight decay, so model capacity models interactions in the effect surface rather than arm-level main effects.",
+        "why_now": "The only evaluated candidate is an additive linear T-learner (top-20% mean effect 0.00331, SE 0.00082, paired-vs-random delta 0.00201), and no other effect-surface mechanism has been tested; READY feature_interactions methods remain untried.",
+        "data_rationale": "All inputs are the declared pre-treatment fields V1..V7 with documented p=0.5 assignment, so centered arm residuals T - p are valid; cross-fitting keeps the nuisance surface from absorbing effect signal; preprocessing is fit on training rows only.",
+        "comparison": "Same frozen split, features, objective, budget, and evaluator; only the estimator changes from per-arm linear torch ridge (parent seed) to a cross-fitted residualized direct-effect torch MLP head.",
+        "expected_result": "Selected top-20% (3381 units, ~0.03 predicted cost per unit) mean conversion effect above the seed's 0.003312 with the paired-vs-random 95% lower bound remaining positive, and AUUC/Qini not below the seed values (0.00685/0.00253).",
+        "falsification": "If the selected-20% mean conversion effect is at or below the seed's 0.003312, or the paired-vs-random interval's lower bound does not stay above zero, the nonlinear effect-surface hypothesis is not supported.",
+        "input_fields": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "alternatives": [
+          {
+            "direction": "Keep the T-learner structure but give each arm a shared nonlinear outcome model certified on GPU",
+            "mechanism": "Fit one torch MLP outcome model per arm with weight decay and take the difference of arm predictions as tau(X), isolating nonlinearity from the change of estimand.",
+            "reason": "Closer to the parent estimator, so it separates the effect of capacity from the effect of residualization; reserved for a follow-up ablation if the direct-effect head helps."
+          },
+          {
+            "direction": "Request per-row treatment timing and realized coupon cost records",
+            "mechanism": "Collect assignment timestamps for every declared field plus realized send and redemption cost per unit, then re-run the frozen policy with a time-gated feature set and a measured cost column.",
+            "reason": "Feature timing is declared only and the 0.15 send cost is assumed, so leakage and budget conclusions cannot be verified from the current data; a data request is needed before any online claim."
+          }
+        ],
+        "family_id": "feature_interactions"
+      },
+      "score": 0.005323238895132194,
+      "report": {
+        "run_id": "6b37c96a801e793e",
+        "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+        "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+        "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+        "candidate_sha256": "9a8eb7b17513a97c7978e91ba22bebbeecb398c70c0f336ccec2b0a338c1b529",
+        "prediction_sha256": "6766d29afdd2c328bbb6e7b79cae893850ace43af58fe575efcd165ff456e5e2",
+        "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+        "budget": {
+          "kind": "cost",
+          "value": 0.03
+        },
+        "seed": 42,
+        "model_device": "cuda",
+        "cuda_peak_bytes": 83667968,
+        "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+        "holdout": "validation",
+        "holdout_size": 16907,
+        "features": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "outcome_columns": {
+          "conversion": "purchase"
+        },
+        "data_validation": {
+          "feature_timing": "declared_only",
+          "assignment_probability": "documented"
+        },
+        "available_outcomes": [
+          "conversion"
+        ],
+        "unavailable_objectives": [
+          "active",
+          "net_margin"
+        ],
+        "policies": {
+          "conversion": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.005323238895132194,
+                "lower": 0.003455618795906919,
+                "upper": 0.007190858994357469,
+                "se": 0.0009528673975639159
+              }
+            },
+            "predicted_cost_per_unit": 0.02999645117406991,
+            "assumed_cost": 0.02999645117406991,
+            "delta_vs_random": {
+              "conversion": 0.0040220027207665465
+            }
+          },
+          "random": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0013012361743656475,
+                "lower": -0.00028821876140729076,
+                "upper": 0.0028906911101385857,
+                "se": 0.0008109463958025196
+              }
+            },
+            "predicted_cost_per_unit": 0.029996451174069908,
+            "assumed_cost": 0.029996451174069908
+          }
+        },
+        "ranking_diagnostics": {
+          "conversion": {
+            "auuc": 0.00713967089395545,
+            "qini": 0.002821932679014893
+          }
+        },
+        "policy_sha256": {
+          "conversion": "3693f5acd96bc82a2fa8df35ea86860f6f8228b1bb582680a15b8480cfba8166",
+          "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+        },
+        "paired_vs_random": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.0040220027207665465,
+              "lower": 0.001975137592838009,
+              "upper": 0.006068867848695084,
+              "se": 0.0010443189428206824
+            }
+          }
+        },
+        "notes": [
+          "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+          "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+          "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+          "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+          "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+          "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+          "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。"
+        ],
+        "feature_gaps": "- Feature timing is declared only; there is no per-row evidence that V1..V7 are measured before assignment. The current candidate is still testable because it treats all declared fields as pre-treatment, but a promoted policy would need row-level timestamps.\n- The budget uses an assumed fixed send cost (0.15 per selected unit); realized redemption cost is not in the frozen dataset, so cost-side conclusions stay conditional.\n- Anonymous field names limit the interaction prior: no business semantics can justify specific crosses, so the effect head learns interactions from data instead of hand-crafted crosses.\n",
+        "compare_candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+        "compare_prediction_sha256": "f5c9eddeca667c8d4a32a4931246a5e3417ac0c4892d13447fa1cae23e4affee",
+        "paired_vs_baseline": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.0020110013603832732,
+              "lower": 5.752010892291076e-05,
+              "upper": 0.003964482611843636,
+              "se": 0.00099667410788794
+            }
+          }
+        },
+        "baseline_policy_sha256": {
+          "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b"
+        }
+      },
+      "analysis": {
+        "model": "deepseek-flash",
+        "provider_url": "https://api.deepseek.com",
+        "initial_effort": "high",
+        "review_effort": "max",
+        "run_id": "6b37c96a801e793e",
+        "high": {
+          "summary": "本次为离线随机券 uplift 实验，留出验证集 16907 人，仅可用转化标签（purchase），无 active/net_margin。新候选为 R-learner + PyTorch 非线性效应头。新候选转化效应均值 0.005323（95% CI 0.003456–0.007191），相对随机的配对提升 0.004022（95% CI 0.001975–0.006069）；相对旧候选的 paired_vs_baseline 提升 0.002011（95% CI 0.0000575–0.003964），AUUC 0.007140 vs 0.006852，Qini 0.002822 vs 0.002534。该验证集可多轮选择，配对区间不能单独作为最终提升证据。特征时点仅声明为 declared_only；成本为假定固定发券成本 0.15/选中用户并摊到全体评估用户，实际核销成本与净毛利不可得。",
+          "recommendation": "建议暂不直接上线或定稿。先触发独立复核：核查 V1–V7 是否有逐行干预前时间戳，核对随机分配概率文档与执行；在锁定最终留出集或未来数据上复现，避免用当前验证集区间作最终结论。成本侧需用实际核销/净毛利重新评估，active 目标缺少标签不得称为促活。若特征时点与成本假设均通过，新候选相对旧候选有正向信号，可进入下一阶段确认性实验。",
+          "uplift_anomaly": {
+            "flag": false,
+            "evidence": "未发现具体 uplift 异常：新候选转化效应为正，且相对随机和相对旧候选的配对差值均为正；但当前仅为验证集结果，存在多轮调参选择风险，区间不构成最终提升证据。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "manifest 中 feature_timing=declared_only，缺少 V1–V7 的逐行测量时间证据；候选代码直接将这些字段作为训练特征，无法确认它们均测量于随机分配之前，因此存在干预后特征泄漏嫌疑。但无具体证据证明某特征含处理/结果信息或测量于分配后，故 confirmed=false，需独立复核。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "成本不是实际核销成本：预算为 cost=0.03，策略 predicted_cost_per_unit=assumed_cost≈0.029996，来自每选中用户 0.15 固定发券费用按全体留出用户平均（3381/16907×0.15）。实际 redemption cost、净毛利和 active 目标均不可得，因此无法判断成本-提升权衡是否成立；结论只能条件性成立。"
+          }
+        },
+        "review_reasons": [
+          "feature_leakage",
+          "cost_tradeoff_unclear"
+        ],
+        "max": {
+          "summary": "本次为离线随机券 uplift 实验，留出验证集 16907 人，仅可用转化标签 conversion/purchase，无 active/net_margin。新候选为 R-learner + PyTorch 非线性效应头：转化效应均值 0.005323（95% CI 0.003456–0.007191），相对随机的配对差值为 0.004022（95% CI 0.001975–0.006069）；相对旧候选的 paired_vs_baseline 差值为 0.002011（95% CI 0.0000575–0.003964），AUUC 0.007140 vs 0.006852，Qini 0.002822 vs 0.002534。该验证集可多轮选择，配对区间不能单独作为最终提升证据；特征时点仅声明，成本为假定值。",
+          "recommendation": "建议暂不上线或定稿，先做独立复核：1）核查 V1–V7 是否有逐行干预前时间戳，并核对随机分配概率文档与实际执行；2）在锁定最终留出集或未来数据上复现，避免用当前验证集区间作最终提升结论；3）用实际核销成本/净毛利重新评估成本权衡，缺少 active 标签不得称为促活。若特征时点和成本假设均通过独立复核，新候选相对旧候选有正向信号，可进入下一阶段确认性实验。",
+          "uplift_anomaly": {
+            "flag": false,
+            "evidence": "未发现具体 uplift 异常：新候选转化效应为正，且相对随机和相对旧候选的配对差值均为正；AUUC/Qini 仅小幅提高。新旧比较应依据 paired_vs_baseline 区间，不能仅凭两个策略的单独区间是否重叠下结论；该配对区间虽为正，但来自可多轮选择的验证集，不构成最终提升证据。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "复核触发成立：manifest 中 feature_timing=declared_only，缺少 V1–V7 逐行测量时间证据，无法确认这些特征均测量于随机分配之前；候选代码将它们作为训练特征，因此存在干预后特征泄漏嫌疑。但候选代码未把 treatment 作为特征，且无具体证据表明某特征包含处理/结果信息或测量于分配后，故 confirmed=false。需独立复核行级时间戳、字段来源及随机分配概率引用；发现具体证据后再升级为确认泄漏。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "复核触发成立：成本不是实际核销成本。预算 cost=0.03，策略 predicted_cost_per_unit=assumed_cost≈0.029996，来自每选中用户 0.15 固定发券费用按全体合格留出用户平均（3381/16907×0.15）；报告中的策略成本按全体评估用户平均，不是实际 redemption cost。实际核销成本、net_margin 和 active 标签均不可得，且报告注明观测成本及区间可能超过预算，因此成本-提升权衡不清，只能条件性判断。"
+          }
+        }
+      },
+      "eligibility": "eligible",
+      "reflection": {
+        "verdict": "consistent",
+        "evidence": "On the frozen validation split (n=16907), the candidate met the pre-stated expected result: selected top-20% conversion effect mean 0.005323 vs seed baseline 0.003312; paired-vs-random mean 0.004022 with 95% lower bound 0.001975 > 0; AUUC 0.007140 vs seed 0.006852 and Qini 0.002822 vs seed 0.002534. paired-vs-baseline mean 0.002011 with lower 0.0000575. Error is null. This supports the tested claim that a cross-fitted residualized direct-effect torch MLP can rank the top-20% policy better than the seed linear T-learner on this dataset. The research mechanism was compared by changing only the estimator on the same split, features, objective, budget, and evaluator; the stated falsification condition was not triggered. However, high/max analysis notes feature timing is declared-only, so post-treatment leakage is suspected but unconfirmed, and cost is an assumed fixed 0.15/selected-unit charge averaged over all evaluated users, not realized redemption cost. Validation is multi-select and not final proof of online improvement. Untested alternatives remain the per-arm shared nonlinear outcome model and the request for row-level timing plus realized coupon cost records.",
+        "lesson": "For this coupon dataset and conversion task, replacing the additive linear T-learner with a residualized nonlinear effect head is associated with a validation gain and positive paired deltas, but the result is exploratory and conditional on declared pre-treatment features and assumed costs. It should not be treated as proven online uplift, nor generalized to other objectives such as active or net_margin, and it does not establish that the cost tradeoff is acceptable.",
+        "next_direction": "Repeat the candidate on a locked final holdout or future randomized data with row-level pre-treatment feature timestamps and actual redemption/net-margin costs. Run the untested per-arm shared nonlinear outcome model to separate nonlinear capacity from residualization, and collect timing and realized-cost records before making any budget, launch, or budget-constrained policy claim."
+      }
+    },
+    {
+      "id": "step-002",
+      "status": "evaluated",
+      "candidate": "steps/step-002/candidate.py",
+      "candidate_sha256": "2091bd61113f24cd691df1439cb6ef5a748d5122f3e4e04a8c60c9ef1025b09a",
+      "operator": "crossover",
+      "parent_ids": [
+        "seed",
+        "step-001"
+      ],
+      "hypothesis": "The step-001 validation gain may be driven by nonlinear capacity rather than by the residualized direct-effect (R-learner) estimand. A shared-trunk per-arm nonlinear outcome model (nonlinear T-learner) that keeps seed's arm-level outcome-surface difference but adds step-001's torch nonlinearity will exceed the linear seed's top-20% conversion effect, and whether it reaches step-001's level will reveal if nonlinear arm capacity alone, without Robinson residualization, is sufficient to reproduce the ranking gain.",
+      "expected_result": "Selected top-20% (3381 units, ~0.03 predicted cost per unit) mean conversion effect above the seed's 0.003312 with the paired-vs-random 95% lower bound remaining positive, and at or below step-001's 0.005323; exceeding 0.003312 supports nonlinear arm-level capacity and staying at or below 0.005323 indicates Robinson residualization, not capacity alone, produced the step-001 gain.",
+      "approach": "Crossover of the seed's per-arm T-learner structure with step-001's torch nonlinear capacity: fit a shared nonlinear trunk over the training design matrix with two arm-specific outcome heads on pooled randomized rows, minimizing the arm-selected MSE so tau(X) is the difference of two fitted nonlinear outcome surfaces rather than a single shared effect head on Robinson residuals. Preprocessing (one-hot for low-cardinality fields, standardized continuous fields) is inherited from step-001 and fit on training rows only; the cost model stays the linear treated-arm ridge used by both parents so the budget comparison is unchanged.",
+      "research": {
+        "direction": "Crossover of the per-arm T-learner structure with nonlinear torch capacity: a shared-trunk network with separate control and treated outcome heads (nonlinear T-learner), instead of a single shared effect head fit on Robinson residuals.",
+        "mechanism": "Fit a shared nonlinear trunk over X with two arm-specific output heads on pooled randomized data, minimizing the MSE of the arm-selected prediction; tau(X) = head_treated(trunk(X)) - head_control(trunk(X)). Because the arms share representation but keep separate heads, the effect is the difference of two fitted nonlinear outcome surfaces rather than one shared effect head on residualized outcomes, isolating nonlinear arm-level capacity from the residualized direct-effect estimand.",
+        "why_now": "Only two candidates have been evaluated: the additive linear T-learner (seed, 0.003312) and the residualized nonlinear R-learner (step-001, 0.005323). The step-001 gain confounds nonlinear capacity with the change of estimand, and both the step-001 reflection and its own untested alternatives single out the per-arm shared nonlinear outcome model as the missing ablation; the feature_interactions family is ready and this mechanism has not been run.",
+        "data_rationale": "Uses only the declared pre-treatment fields V1..V7 with documented p=0.5 randomization, so arm indicators are valid; one-hot/standardization statistics are fit on training rows only, and separate arm heads avoid feeding treatment as a nuisance input while the shared trunk reuses both arms' rows.",
+        "comparison": "Same frozen split, features, objective, cost budget, and evaluator as seed and step-001; only the estimator changes from seed's per-arm additive linear ridge and step-001's single residualized MLP effect head to a shared-trunk per-arm nonlinear MLP outcome model.",
+        "expected_result": "Selected top-20% (3381 units, ~0.03 predicted cost per unit) mean conversion effect above the seed's 0.003312 with the paired-vs-random 95% lower bound remaining positive, and at or below step-001's 0.005323; exceeding 0.003312 supports nonlinear arm-level capacity and staying at or below 0.005323 indicates Robinson residualization, not capacity alone, produced the step-001 gain.",
+        "falsification": "If the selected top-20% mean conversion effect is at or below the seed's 0.003312, nonlinear arm-level outcome surfaces add nothing over the linear T-learner and the capacity-alone mechanism is rejected; if it exceeds step-001's 0.005323, the attribution of the step-001 gain to residualization rather than capacity is rejected. A paired-vs-random 95% lower bound at or below zero also rejects the candidate.",
+        "input_fields": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "alternatives": [
+          {
+            "direction": "Doubly robust (AIPW) pseudo-outcome learner with cross-fitted per-arm outcome models and the documented propensity",
+            "mechanism": "Cross-fit control and treated outcome models, form the augmented pseudo-outcome from the arm indicator, propensity, and residuals, then regress that pseudo-outcome on X with a nonlinear head.",
+            "reason": "Uses the assignment_or_exposure_propensity capability that neither parent exploited beyond a plug-in constant and gives a doubly robust contrast to the residualized R-learner; kept as a considered alternative to avoid changing the estimand and the representation at the same time."
+          },
+          {
+            "direction": "Replace step-001's cross-fitted linear ridge nuisance with a cross-fitted nonlinear nuisance",
+            "mechanism": "Keep the single effect head on Robinson residuals but cross-fit an MLP outcome surface m(X) instead of a ridge.",
+            "reason": "Tests whether residualization is limited by nuisance misspecification rather than effect-head capacity; deferred because it changes the nuisance model inside the already-evaluated estimator."
+          }
+        ],
+        "family_id": "feature_interactions"
+      },
+      "score": 0.005559827290471402,
+      "report": {
+        "run_id": "6ec0c5f4e03d3eb5",
+        "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+        "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+        "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+        "candidate_sha256": "2091bd61113f24cd691df1439cb6ef5a748d5122f3e4e04a8c60c9ef1025b09a",
+        "prediction_sha256": "8b6b32441eeda6d1fc08a41344363483c11631eee78c16ac0e692675c4a0e87c",
+        "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+        "budget": {
+          "kind": "cost",
+          "value": 0.03
+        },
+        "seed": 42,
+        "model_device": "cuda",
+        "cuda_peak_bytes": 84723200,
+        "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+        "holdout": "validation",
+        "holdout_size": 16907,
+        "features": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "outcome_columns": {
+          "conversion": "purchase"
+        },
+        "data_validation": {
+          "feature_timing": "declared_only",
+          "assignment_probability": "documented"
+        },
+        "available_outcomes": [
+          "conversion"
+        ],
+        "unavailable_objectives": [
+          "active",
+          "net_margin"
+        ],
+        "policies": {
+          "conversion": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.005559827290471402,
+                "lower": 0.0037213772903092464,
+                "upper": 0.007398277290633557,
+                "se": 0.0009379846939602834
+              }
+            },
+            "predicted_cost_per_unit": 0.02999645117406991,
+            "assumed_cost": 0.02999645117406991,
+            "delta_vs_random": {
+              "conversion": 0.004258591116105754
+            }
+          },
+          "random": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0013012361743656475,
+                "lower": -0.00028821876140729076,
+                "upper": 0.0028906911101385857,
+                "se": 0.0008109463958025196
+              }
+            },
+            "predicted_cost_per_unit": 0.029996451174069908,
+            "assumed_cost": 0.029996451174069908
+          }
+        },
+        "ranking_diagnostics": {
+          "conversion": {
+            "auuc": 0.00706821999512053,
+            "qini": 0.0027504817801799726
+          }
+        },
+        "policy_sha256": {
+          "conversion": "6cf67d784290a50f18792ac328d38dc7b35afc8bd21b8013de7760c8e98a31e3",
+          "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+        },
+        "paired_vs_random": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.004258591116105755,
+              "lower": 0.002265059330624864,
+              "upper": 0.006252122901586646,
+              "se": 0.0010171080538167812
+            }
+          }
+        },
+        "notes": [
+          "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+          "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+          "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+          "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+          "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+          "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+          "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。"
+        ],
+        "feature_gaps": "- Feature timing is declared only; there is no per-row evidence that V1..V7 are measured before assignment. The candidate is still testable because it treats all declared fields as pre-treatment, but a promoted policy would need row-level timestamps.\n- The budget uses an assumed fixed send cost (0.15 per selected unit) averaged over all evaluated users; realized redemption cost and net margin are not in the frozen dataset, so cost-side conclusions stay conditional.\n- Anonymous field names prevent business-semantic crosses; the shared trunk learns interactions from data instead of hand-crafted crosses, and no scenario/sequence semantics are assumed from dtypes or cardinalities.\n",
+        "compare_candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+        "compare_prediction_sha256": "f5c9eddeca667c8d4a32a4931246a5e3417ac0c4892d13447fa1cae23e4affee",
+        "paired_vs_baseline": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.002247589755722482,
+              "lower": 0.0003785536399028219,
+              "upper": 0.004116625871542142,
+              "se": 0.0009535898550100306
+            }
+          }
+        },
+        "baseline_policy_sha256": {
+          "conversion": "b5bf0cc6d0e242475846e95f65f8ec08a1d8ce6fc2f0e89801e2ad81084daa3b"
+        }
+      },
+      "analysis": {
+        "model": "deepseek-flash",
+        "provider_url": "https://api.deepseek.com",
+        "initial_effort": "high",
+        "review_effort": "max",
+        "run_id": "6ec0c5f4e03d3eb5",
+        "high": {
+          "summary": "新旧候选均在同一个 validation holdout（16907 人）上评估，随机策略相同。旧候选转化 uplift mean=0.00331，95% CI [0.00171, 0.00492]，paired_vs_random mean=0.00201，95% CI [0.00011, 0.00391]；新候选转化 uplift mean=0.00556，95% CI [0.00372, 0.00740]，paired_vs_random mean=0.00426，95% CI [0.00227, 0.00625]。新 vs 旧 paired_vs_baseline mean=0.00225，95% CI [0.00038, 0.00412]，区间未跨 0，说明在该验证集上新候选优于旧候选；但验证集可用于多轮选择，不能作为最终提升结论。特征时点仅 manifest 声明，成本为假设固定发券费 0.15/选中用户并均摊到全体合格用户，实际核销/净边际缺失。",
+          "recommendation": "不要仅凭当前 validation 结果上线。建议：1) 在独立最终测试集或新随机实验中预注册并复核新 vs 旧；2) 补充逐行特征时间戳并人工核对随机化概率来源，确认无 intervention 后特征；3) 获取 actual redemption cost、net_margin 和 active 标签后再判断成本/ROI；4) 若独立测试仍确认 paired_vs_baseline 为正且实际成本可接受，再考虑采用新候选，否则回退旧候选或随机策略。",
+          "uplift_anomaly": {
+            "flag": false,
+            "evidence": "未发现具体数值异常：旧候选 paired_vs_random 下界 0.00011 仅略高于 0，新候选 paired_vs_random 下界 0.00227，新 vs 旧 paired_vs_baseline 下界 0.00038，均与正提升一致；随机策略区间含 0。主要风险是 validation 多轮复用导致估计可能偏乐观，且缺少独立最终测试，但这属于证据强度不足，不是已证实的 uplift 异常。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "data_validation.feature_timing='declared_only'，manifest 只声明特征为预处理，但无逐行时间证据证明 V1..V7 均在 assignment 前测得；note 明确说不能据此确认无 intervention 后特征。代码本身未把 treatment/outcome 当作特征，但时点未验证，因此需独立审查。未发现具体证据表明某特征包含 treatment/outcome 或 assignment 后测量，故 confirmed=false。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "报告仅含 conversion/purchase 结果，unavailable_objectives 包含 active 和 net_margin；成本侧使用 assumed fixed_send_cost=0.15/选中用户，并按全体 16907 合格 holdout 用户均摊为预算 0.03，不是实际核销成本；predicted_cost_per_unit 与 assumed_cost 相同，观测成本及区间可能超预算。缺少实际 redemption cost、net margin 与 active 标签，无法判断成本-提升权衡/ROI。"
+          }
+        },
+        "review_reasons": [
+          "feature_leakage",
+          "cost_tradeoff_unclear"
+        ],
+        "max": {
+          "summary": "复核第一版分析：新旧候选在同一 validation holdout（16907 人）上评估，随机策略相同。旧候选转化 uplift mean=0.003312，95% CI [0.001707, 0.004918]，paired_vs_random mean=0.002011，95% CI [0.000113, 0.003909]；新候选转化 uplift mean=0.005560，95% CI [0.003721, 0.007398]，paired_vs_random mean=0.004259，95% CI [0.002265, 0.006252]。新旧比较采用 paired_vs_baseline：mean=0.002248，95% CI [0.000379, 0.004117]，在验证集上未跨 0，提示新候选相对旧候选有正向信号；但验证集可用于多轮选择，不能据此作出最终提升结论，也不能用两个单独区间是否重叠来判断。排名诊断 AUUC/Qini 均小幅上升。特征时点仅 declared_only，随机化概率仅 documented；成本为 assumed fixed_send_cost=0.15/选中用户并均摊到全体合格用户，不是实际核销成本；active 与 net_margin 缺失。",
+          "recommendation": "不要仅凭当前 validation 结果上线。建议：1) 在独立最终测试集或新随机实验中预注册并复核新 vs 旧 paired_vs_baseline；2) 补充逐行特征时间戳并人工核对随机化概率来源与执行，确认无 assignment 后特征；3) 获取 actual redemption cost、net_margin 和 active 标签后再判断成本-提升权衡与 ROI；4) 若独立测试仍确认 paired_vs_baseline 为正且实际成本可接受，再考虑采用新候选，否则回退旧候选或随机策略；5) 继续监控实际成本与预算，因观测成本及区间可能超预算。",
+          "uplift_anomaly": {
+            "flag": false,
+            "evidence": "未发现具体 uplift 数值异常：旧候选 paired_vs_random 下界 0.000113 仅略高于 0，新候选下界 0.002265，新 vs 旧 paired_vs_baseline 下界 0.000379，均与正提升一致；随机策略区间 [-0.000288, 0.002891] 含 0。主要风险是 validation 多轮复用导致估计可能偏乐观，且缺少独立最终测试，但这属于证据强度不足，不是已证实的 uplift 异常。新候选 uplift mean 较高且 AUUC/Qini 小幅上升，未见方向反转、均值与区间矛盾或明显截断异常。因此 flag=false。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "data_validation.feature_timing=declared_only，manifest 仅声明 V1..V7 为预处理特征，缺少逐行时间戳或 assignment 时间证据证明均在随机分组前测得；note 明确说不能据此确认无干预后特征。代码未把 treatment/outcome 当作特征，outcome head 使用 treatment 仅用于训练 T-learner，未发现某特征含 treatment/outcome 信息或明确在 assignment 后测量的具体证据；但特征时点未验证，需独立审查。因此 flag=true（怀疑/待审），confirmed=false。若要在未来设为 confirmed=true，需要具体证据表明某特征在 assignment 后测量或包含 treatment/outcome 信息。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "报告仅含 conversion/purchase 结果，unavailable_objectives 包含 active 和 net_margin；成本侧使用 assumed fixed_send_cost=0.15/选中 treated 用户，并按全体 16907 合格 holdout 用户均摊为预算 0.03，不是实际核销成本；predicted_cost_per_unit 与 assumed_cost 相同，成本模型仅基于 treated 训练，实际 redemption cost 和净边际缺失。因此无法判断成本-提升权衡与 ROI，观测成本及区间也可能超预算，成本侧结论只能条件性成立；flag=true。"
+          }
+        }
+      },
+      "eligibility": "eligible",
+      "reflection": {
+        "verdict": "inconsistent",
+        "evidence": "Actual candidate score 0.005559827 exceeds seed baseline 0.003312238 and also exceeds the expected upper bound / prior step-001 level 0.005323. Paired-vs-random conversion mean is 0.004259 with 95% lower bound 0.002265 > 0; paired-vs-baseline mean is 0.002248 with 95% lower bound 0.000379 > 0; error is null. The tested claim was whether a shared-trunk per-arm nonlinear T-learner without Robinson residualization can exceed the linear seed and reveal whether nonlinear arm capacity alone reproduces the prior ranking gain. The capacity part is supported relative to seed, but the expected_result condition of being at or below step-001 is not met, triggering the stated falsification: exceeding step-001 rejects the attribution that Robinson residualization rather than nonlinear capacity produced the step-001 gain. High/max analysis finds no uplift anomaly, but flags unconfirmed feature-timing leakage and unclear cost tradeoff; the candidate was not failed or blocked for confirmed leakage.",
+        "lesson": "On this frozen coupon dataset and task, a shared-trunk per-arm nonlinear T-learner without Robinson residualization achieved a higher validation top-20% conversion effect than both the linear seed and the prior residualized nonlinear R-learner point estimate. This is exploratory validation evidence, not proof of final improvement; it suggests nonlinear arm-level capacity may be sufficient here, but it does not generalize to all feature_interactions or all residualization settings. Feature timing is declared only, and actual redemption cost, net margin, and active labels are unavailable.",
+        "next_direction": "Do not treat this validation gain as deployment proof. Run a pre-registered independent final test or new randomized experiment with paired intervals for candidate vs seed and vs step-001; add row-level feature timestamps and verify assignment probability; obtain actual redemption cost, net margin, and active labels before cost/ROI conclusions. Also test the untested alternatives: AIPW pseudo-outcome learner with cross-fitted per-arm outcome models and documented propensity, and residualized R-learner with a cross-fitted nonlinear nuisance instead of linear ridge. If final evidence remains positive and costs acceptable, promote; otherwise retain seed or random."
+      }
+    },
+    {
+      "id": "step-003",
+      "status": "evaluated",
+      "candidate": "steps/step-003/candidate.py",
+      "candidate_sha256": "684ee59fc0358efdcb43c0d50647276b2fa69ba2a44855167b6eae112561ef06",
+      "operator": "crossover",
+      "parent_ids": [
+        "step-002",
+        "step-001"
+      ],
+      "hypothesis": "step-002 showed that nonlinear per-arm outcome surfaces alone (no Robinson residualization) already beat the linear seed and the residualized R-learner on the frozen validation split. The remaining untested mechanism is a doubly robust correction: cross-fit nonlinear per-arm outcome models mu0, mu1 (step-002's arm-level capacity) and form the AIPW pseudo-outcome psi = mu1(X) - mu0(X) + T(Y-mu1(X))/e - (1-T)(Y-mu0(X))/(1-e) with the documented randomization probability, then fit a nonlinear effect head on psi (step-001's direct-effect head plus cross-fitting). This should rank the constrained top-20% policy at least as well as step-002 while explicitly correcting arm imbalance, so it beats the seed and does not fall materially below the plain nonlinear T-learner.",
+      "expected_result": "On the frozen validation split, the selected top-20% (3381 units, ~0.03 assumed cost per unit) mean conversion effect should exceed the seed's 0.003312 with the paired-vs-random 95% lower bound > 0; to support the added doubly robust correction over step-002, paired-vs-baseline against step-002 should be non-negative (mean >= 0) and AUUC/Qini should be at or above step-002's 0.007068/0.002750.",
+      "approach": "Crossover of step-002's per-arm nonlinear outcome models with step-001's direct-effect head and cross-fitting, plus the documented propensity in an augmented-IPW (AIPW) pseudo-outcome. For each outcome, 5-fold cross-fitting trains independent torch MLP outcome models on control and treated rows of the out-of-fold portion and predicts both mu0 and mu1 on the held-out fold, so nuisance overfitting cannot leak into the pseudo-outcome. The AIPW pseudo-outcome uses the documented e=0.5 (clipped), and a torch MLP effect head is fit on it with weight decay. Preprocessing (one-hot for low-cardinality fields, standardized continuous fields) uses train-only statistics; the cost model stays the linear treated-arm torch ridge used by both parents so the budget comparison is unchanged.",
+      "research": {
+        "direction": "Doubly robust augmented-IPW (AIPW) pseudo-outcome learning with cross-fitted per-arm nonlinear outcome models and a nonlinear effect head, instead of a pure difference of nonlinear outcome surfaces (step-002) or a shared-residual R-learner (step-001).",
+        "mechanism": "For each arm, 5-fold cross-fit a torch MLP outcome model and predict out-of-fold mu0(X) and mu1(X) for every training row; form the AIPW pseudo-outcome psi = mu1 - mu0 + T(Y-mu1)/e - (1-T)(Y-mu0)/(1-e) with the documented e=0.5, then regress psi on X with a torch MLP effect head with weight decay. Cross-fitting keeps nuisance overfitting out of psi, and the propensity term explicitly corrects arm imbalance that a plain T-learner difference ignores.",
+        "why_now": "Only three candidates exist: linear T-learner (seed 0.003312), residualized nonlinear R-learner (step-001 0.005323), and shared-trunk nonlinear T-learner (step-002 0.005560). step-002's reflection explicitly lists the AIPW pseudo-outcome learner with cross-fitted per-arm outcome models and documented propensity as the untested alternative, no candidate has used the propensity capability beyond a constant plug-in, and the feedback_bias family is ready.",
+        "data_rationale": "All inputs are the declared pre-treatment fields V1..V7 with documented p=0.5 assignment, so arm indicators and the augmentation term are valid; one-hot/standardization statistics and all nuisance fits are computed on training rows only, and out-of-fold predictions keep the pseudo-outcome honest on the same frozen split.",
+        "comparison": "Same frozen split, features, objective, cost budget, and evaluator as seed, step-001 and step-002; only the estimator changes from step-002's arm-selected-MSE difference of per-arm nonlinear surfaces and step-001's shared-residual effect head to an AIPW pseudo-outcome head built from cross-fitted per-arm nonlinear outcome models with the documented propensity.",
+        "expected_result": "On the frozen validation split, the selected top-20% (3381 units, ~0.03 assumed cost per unit) mean conversion effect should exceed the seed's 0.003312 with the paired-vs-random 95% lower bound > 0; to support the added doubly robust correction over step-002, paired-vs-baseline against step-002 should be non-negative (mean >= 0) and AUUC/Qini should be at or above step-002's 0.007068/0.002750.",
+        "falsification": "If the selected top-20% mean conversion effect is at or below the seed's 0.003312, or the paired-vs-random 95% lower bound is at or below zero, the AIPW effect head is not supported; if paired-vs-baseline against step-002 is negative with the 95% upper bound below zero (DR correction materially worse than the plain nonlinear T-learner), the added correction mechanism is rejected.",
+        "input_fields": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "alternatives": [
+          {
+            "direction": "Residualized R-learner with a cross-fitted nonlinear nuisance instead of the linear ridge outcome surface.",
+            "mechanism": "Keep a single effect head on Robinson residuals but replace the cross-fitted torch ridge m(X) with a cross-fitted torch MLP outcome surface, so the residual objective sees a nonlinear baseline.",
+            "reason": "Directly tests whether step-001 was limited by nuisance misspecification rather than effect-head capacity, and isolates that from the new AIPW augmentation; deferred because it changes only the nuisance model inside an already-evaluated estimator."
+          },
+          {
+            "direction": "X-learner two-stage imputation of individual treatment effects.",
+            "mechanism": "Fit outcome models per arm, impute treated-arm effects with the control model and control-arm effects with the treated model, then combine the two imputed effect regressions with the propensity as a weight.",
+            "reason": "Structurally different from both the residualized and AIPW heads and can help when one arm is harder to model, but it reuses the same per-arm nuisance fits as this candidate, so it is a follow-up ablation rather than the first test."
+          }
+        ],
+        "family_id": "feedback_bias"
+      },
+      "score": 0.0033122375347489205,
+      "report": {
+        "run_id": "228af6baaf282a49",
+        "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+        "framework_sha256": "53a17c2fa22572e5f3b148e5608804c077f97dc74158cd9b5327251c1b6bc75c",
+        "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+        "candidate_sha256": "684ee59fc0358efdcb43c0d50647276b2fa69ba2a44855167b6eae112561ef06",
+        "prediction_sha256": "65d12b798d1c216a2484c9afb131c7497ad9acf00cd003392d34143cbf23a21a",
+        "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+        "budget": {
+          "kind": "cost",
+          "value": 0.03
+        },
+        "seed": 42,
+        "model_device": "cuda",
+        "cuda_peak_bytes": 91256320,
+        "execution": "docker:coupon-lab-sandbox:py312-cuda128",
+        "holdout": "validation",
+        "holdout_size": 16907,
+        "features": [
+          "V1",
+          "V2",
+          "V3",
+          "V4",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "outcome_columns": {
+          "conversion": "purchase"
+        },
+        "data_validation": {
+          "feature_timing": "declared_only",
+          "assignment_probability": "documented"
+        },
+        "available_outcomes": [
+          "conversion"
+        ],
+        "unavailable_objectives": [
+          "active",
+          "net_margin"
+        ],
+        "policies": {
+          "conversion": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0033122375347489205,
+                "lower": 0.0016091275788961642,
+                "upper": 0.005015347490601677,
+                "se": 0.0008689336509452838
+              }
+            },
+            "predicted_cost_per_unit": 0.02999645117406991,
+            "assumed_cost": 0.02999645117406991,
+            "delta_vs_random": {
+              "conversion": 0.002011001360383273
+            }
+          },
+          "random": {
+            "selected_count": 3381,
+            "effects": {
+              "conversion": {
+                "mean": 0.0013012361743656475,
+                "lower": -0.00028821876140729076,
+                "upper": 0.0028906911101385857,
+                "se": 0.0008109463958025196
+              }
+            },
+            "predicted_cost_per_unit": 0.029996451174069908,
+            "assumed_cost": 0.029996451174069908
+          }
+        },
+        "ranking_diagnostics": {
+          "conversion": {
+            "auuc": 0.006165274304125217,
+            "qini": 0.00184753608918466
+          }
+        },
+        "policy_sha256": {
+          "conversion": "4c145b7049cc96b45acfa7ec82fd2f3c0036d63b0fdb2fe76dac9b8badbbadd3",
+          "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+        },
+        "paired_vs_random": {
+          "conversion": {
+            "conversion": {
+              "mean": 0.0020110013603832732,
+              "lower": -4.962340011673916e-05,
+              "upper": 0.004071626120883286,
+              "se": 0.0010513391635204145
+            }
+          }
+        },
+        "notes": [
+          "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+          "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+          "验证集可用于多轮选择；其配对区间不能单独作为最终提升证据。",
+          "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+          "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+          "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+          "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。"
+        ],
+        "feature_gaps": "- Feature timing is declared only; there is no per-row evidence that V1..V7 are measured before assignment. The candidate remains testable because it only uses the declared fields as pre-treatment inputs, but a promoted policy would need row-level pre-treatment timestamps.\n- The budget uses an assumed fixed send cost (0.15 per selected unit) averaged over all evaluated users; realized redemption cost and net margin are absent, so any cost/ROI conclusion stays conditional.\n- The propensity is documented as 0.5 and verified only by the documented assignment probability; aligning the executed randomization with the documented value still needs an independent audit.\n- Anonymous field names prevent justified business-semantic crosses; the effect head and the per-arm outcome models learn interactions from data without assuming scenario/sequence meaning.\n",
+        "compare_candidate_sha256": "2091bd61113f24cd691df1439cb6ef5a748d5122f3e4e04a8c60c9ef1025b09a",
+        "compare_prediction_sha256": "8b6b32441eeda6d1fc08a41344363483c11631eee78c16ac0e692675c4a0e87c",
+        "paired_vs_baseline": {
+          "conversion": {
+            "conversion": {
+              "mean": -0.002247589755722482,
+              "lower": -0.003731853812722608,
+              "upper": -0.0007633256987223558,
+              "se": 0.0007572775801021051
+            }
+          }
+        },
+        "baseline_policy_sha256": {
+          "conversion": "6cf67d784290a50f18792ac328d38dc7b35afc8bd21b8013de7760c8e98a31e3"
+        }
+      },
+      "analysis": {
+        "model": "deepseek-flash",
+        "provider_url": "https://api.deepseek.com",
+        "initial_effort": "high",
+        "review_effort": "max",
+        "run_id": "228af6baaf282a49",
+        "high": {
+          "summary": "本报告为离线随机优惠券 uplift 实验。验证留出集 16907 人，预算为成本 0.03，成本按每位选中用户 0.15 的固定发券假设在全体评估用户上平均得到 0.029996；仅转化可用，活跃与净毛利不可用。before 候选（2091…）相对 random 的配对区间为正，且相对其基线 b5bf… 为正；after 候选（684e…）相对旧候选（2091…）的 paired_vs_baseline 转化均值为 -0.0022476，95% 区间 [-0.0037319, -0.0007633]，完全低于 0；相对 random 均值为 0.0020110，区间 [-0.0000496, 0.0040716] 含 0；AUUC/Qini 也低于 before。结论：在本次验证中，新候选未见可靠提升，且相对旧候选显著更差；但验证集可复用，配对区间不能作为最终提升证据。特征时点仅 manifest 声明，无法确认干预前测量。成本为固定发券假设，非实际核销成本。",
+          "recommendation": "建议不基于本次验证上线 after 新候选；优先保留旧候选/原基线，或回退到 before 旧候选，并暂停推广。若要继续迭代，先做独立复核：逐行核验 V1..V7 与干预时点、随机化概率与执行情况，并在未复用留出集上做确认实验；补充实际核销成本、净毛利与活跃标签（当前不可用）后再做成本-收益决策。不要用验证集区间重叠或单独区间宣称最终提升。",
+          "uplift_anomaly": {
+            "flag": true,
+            "evidence": "after 新候选相对旧候选的 paired_vs_baseline conversion 均值为 -0.0022476，区间 [-0.0037319, -0.0007633]，完全在 0 下方；相对 random 的 paired 均值为 0.0020110，区间 [-0.0000496, 0.0040716] 含 0；AUUC 0.006165、Qini 0.001848 均低于 before 的 0.007068/0.002750。说明新候选在验证集上不仅未超过旧候选，且相对 random 的提升不稳健。注意验证集可复用，仍需最终独立留出/上线实验确认。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "manifest 仅声明 feature_timing=declared_only，没有逐行时间戳证明 V1..V7 在随机分配/干预前测得；候选代码直接使用这些特征训练 uplift。未发现特征包含处理或结果信息的直接证据，但时点未证实，无法确认无泄漏。assignment_probability=documented 也仅记录来源，执行随机化仍需人工核对。因此 flag=true 触发独立复核，confirmed=false。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "报告中的成本是假设的每位选中用户 0.15 固定发券费用按全体 16907 名评估用户平均后的 0.029996（预算 0.03），不是实际核销成本；net_margin 与 active 不可用。策略使用预测成本选择发券，观测成本及区间可能超过预算，无法据此判断 ROI 或成本-收益是否成立。因此 flag=true。"
+          }
+        },
+        "review_reasons": [
+          "uplift_anomaly",
+          "feature_leakage",
+          "cost_tradeoff_unclear"
+        ],
+        "max": {
+          "summary": "审计结果：确认 uplift_anomaly、feature_leakage（疑似但未确认）、cost_tradeoff_unclear 三个复核触发。after 新候选相对旧候选 before 的 paired_vs_baseline 转化均值为 -0.0022476，95% 区间 [-0.0037319, -0.0007633]，完全低于 0；相对 random 的配对均值为 0.0020110，区间 [-0.0000496, 0.0040716] 含 0；AUUC/Qini 为 0.006165/0.001848，低于 before 的 0.007068/0.002750。before 相对 random 及相对其基线均为正。结论：在本次验证集上新候选未见可靠提升且相对旧候选更差，但验证集可复用，不能作为最终上线证据；特征时点仅声明、成本为固定发券假设，均需独立复核。",
+          "recommendation": "建议不基于本次验证推广 after 新候选；优先保留或回退到 before 旧候选/原基线，并暂停推广。后续在未复用留出集或正式实验中确认；逐行核验 V1..V7 与干预时点、随机化概率及执行情况；补充实际核销成本、净毛利与活跃标签后再做成本收益决策。不要用验证集区间重叠或单独区间宣称最终提升。",
+          "uplift_anomaly": {
+            "flag": true,
+            "evidence": "确认异常复核：after 新候选相对旧候选 before 的 paired_vs_baseline conversion 均值为 -0.0022476，95% 区间 [-0.0037319, -0.0007633]，完全在 0 下方；after 相对 random 的配对均值为 0.0020110，区间 [-0.0000496, 0.0040716] 含 0；AUUC/Qini 均低于 before。按 paired_vs_baseline 评估新旧，说明 after 在本次验证中不仅未超越旧候选，且相对 random 的提升不稳健。验证集可复用，该结论仅触发独立复核，不是最终提升证据。"
+          },
+          "feature_leakage": {
+            "flag": true,
+            "confirmed": false,
+            "evidence": "flag=true，confirmed=false。manifest 仅声明 feature_timing=declared_only，没有逐行时间戳证明 V1..V7 在随机分配/干预前测得；assignment_probability=documented 也仅是文档记录，未独立核对执行随机化。候选代码将 V1..V7 作为特征训练 uplift，未发现特征包含处理/结果信息或明确干预后测量的直接证据，因此不能确认泄漏；但时点未验证，需独立复核。"
+          },
+          "cost_tradeoff_unclear": {
+            "flag": true,
+            "evidence": "确认成本权衡不清晰：预算 kind=cost value=0.03；成本来自每位选中用户 0.15 的固定发券假设，按全体 16907 名评估用户平均得到 0.029996，不是实际核销成本；net_margin 与 active 不可用。策略使用 predicted_cost_per_unit 选择发券，观测成本及区间可能超过预算，无法判断实际 ROI 或成本收益是否成立。"
+          }
+        }
+      },
+      "eligibility": "eligible",
+      "reflection": {
+        "verdict": "inconsistent",
+        "evidence": "The candidate's actual objective score is 0.0033122375347489205, equal to the supplied baseline_score and not above the expected seed threshold of 0.003312; its selected top-20% conversion mean is also 0.0033122375347489205. The paired-vs-random 95% interval is mean 0.0020110013603832732 with lower -4.962340011673916e-05 and upper 0.004071626120883286, so the lower bound is <= 0, falsifying the expected >0 condition. More decisively, paired-vs-baseline against step-002 is mean -0.002247589755722482 with 95% interval [-0.003731853812722608, -0.0007633256987223558], entirely below zero, so the AIPW correction is materially worse than the plain nonlinear T-learner on this validation split. Ranking diagnostics are also below step-002: AUUC 0.006165274304125217 vs 0.007068, Qini 0.00184753608918466 vs 0.002750. error is null and there is no execution failure. The high/max analysis flags uplift_anomaly=true, cost_tradeoff_unclear=true, and feature_leakage flag=true but confirmed=false: feature timing is declared_only with no row-level pre-treatment evidence, assignment probability is documented but not independently audited, and cost is an assumed fixed 0.15 send cost averaged to 0.029996 rather than realized redemption cost. These limitations do not block the run or confirm leakage, so they do not make the result invalid, but they weaken causal/ROI interpretation. The tested claim was that the AIPW pseudo-outcome head with cross-fitted per-arm nonlinear outcome models and documented propensity would at least match step-002 and beat the seed; this claim was falsified for this configuration on this dataset and task. Untested alternatives remain: a cross-fitted nonlinear nuisance inside an R-learner, and X-learner two-stage imputation.",
+        "lesson": "On this coupon dataset and task, the specific AIPW pseudo-outcome learner with cross-fitted per-arm MLP nuisances and a nonlinear effect head did not beat the seed and was materially worse than step-002's plain nonlinear T-learner, so the added doubly robust correction was not supported by this validation evidence. This does not generalize to all doubly robust, propensity-based, or AIPW methods; it only rejects this configuration under the observed frozen-split comparison. Validation gains are exploratory and not final proof; the lack of row-level feature-timing evidence, independent randomization/propensity audit, and realized cost/net-margin data further limits causal and ROI claims.",
+        "next_direction": "Do not promote this candidate based on this validation result; retain or revert to step-002 or the seed. If continuing offline exploration, first independently audit row-level V1..V7 timing relative to assignment and verify executed randomization against the documented propensity, then test the remaining untested alternatives such as a cross-fitted nonlinear nuisance inside an R-learner or an X-learner imputation design, preferably on a fresh holdout or confirmatory split. Evaluate actual redemption cost, net margin, and active labels if they become available before making cost-benefit or business conclusions."
+      }
+    }
+  ],
+  "diagnoses": [],
+  "best_id": "step-002",
+  "data_request": {
+    "reason": "The experiment budget is exhausted (experiment_budget_exhausted=true) and no further experiment or diagnose can run in this search, so the only productive offline moves left are to unblock the two gaps that every report flagged. All three evaluated candidates (seed 0.00331, step-001 0.00532, step-002 0.00556, step-003 reverted to 0.00331) were fit on V1..V7 with data_validation.feature_timing='declared_only': manifest labels them pre-treatment but there is no per-row time evidence, so the winning step-002 ranking cannot be separated from possible post-assignment leakage. Separately, the budget is a cost budget (0.03) but cost is an assumed fixed 0.15 send fee averaged over all evaluated units to 0.029996, not realized redemption cost, and the reviews call the cost-benefit tradeoff unclear. A row-level pre-assignment timing record (with realized cost per unit) would let the frozen objective be re-scored on a leakage-free, measured-cost feature set without changing the dataset, split, objective, or evaluator.",
+    "feature_request": {
+      "name": "row_level_pre_assignment_feature_timestamps",
+      "definition": "For every assignment unit, one row containing assignment_time and a measurement timestamp for each declared field V1..V7, so that each field can be checked to have been observed strictly before treatment assignment; optionally the same join may carry realized coupon redemption cost and net margin per unit for re-scoring under the cost budget.",
+      "source": "Experiment assignment/randomization log (unit_id -> assignment_time, arm) joined to the ETL/extraction records that produced V1..V7 for the same unit_id, plus the coupon ledger that records realized send and redemption amounts per unit.",
+      "as_of": "Per row, emitted with the same cutoffs used for the frozen training and holdout units: assignment_time and each feature's measurement_time recorded relative to assignment_time, with no post-assignment backfill or overwrite of the feature snapshots.",
+      "evidence": "Every validation report in history carries data_validation.feature_timing='declared_only' with the note that row-level time evidence is missing; the high and max reviews of seed, step-001, step-002 and step-003 all set feature_leakage flag=true, confirmed=false on exactly that basis, and cost_tradeoff_unclear=true because predicted_cost_per_unit equals the assumed 0.029996 rather than a realized cost. step-002's feature_gaps_md states verbatim that no per-row evidence exists that V1..V7 are measured before assignment and that realized redemption cost and net margin are absent from the frozen dataset.",
+      "validation_plan": "Join the new timestamps onto the frozen train/validation units and compute per feature the fraction of rows with measurement_time >= assignment_time; report any field that is not verifiably pre-assignment and drop it. Re-fit seed and the best candidate (step-002's shared-trunk per-arm nonlinear T-learner) on the verified field set under the identical split, objective, cost budget and evaluator, and compare paired-vs-random and paired-vs-baseline intervals plus AUUC/Qini against the archived prediction hashes. If realized cost per unit is present, recompute predicted_cost_per_unit and the selected-20% policy value against the 0.03 budget and check whether the observed cost interval still fits; if a field is dropped or cost changes the selected set, treat all earlier validation orderings as superseded."
+    },
+    "after_step": 3,
+    "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+    "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5"
+  }
+}

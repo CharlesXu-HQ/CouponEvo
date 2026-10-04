@@ -1,0 +1,19 @@
+{
+  "seed": 42,
+  "status": "diagnostic",
+  "data_requests": {
+    "plain": true,
+    "guided": true
+  },
+  "guided_minus_plain": {
+    "mean": 0.0009463535813568345,
+    "lower": -0.0010646477790264388,
+    "upper": 0.0029573549417401075,
+    "se": 0.0010139012875349795
+  },
+  "plain_steps": 3,
+  "guided_steps": 3,
+  "plain_best": "seed",
+  "guided_best": "step-002",
+  "report": "runs/model-evo-ab-001/paired/8212ebe55a25e306/report.json"
+}
