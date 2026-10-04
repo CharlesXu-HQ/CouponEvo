@@ -58,6 +58,8 @@ Starbucks 不包含 App 促活标签、实际券核销成本或用户级毛利�
 
 在 `search`、`--resume` 和 `finalize` 命令中加入 `--harness harnesses/coupon-research.json`，即可启用[研究插件](docs/harness.md)。插件提供分类但非穷举的实验指南、训练分区字段概况，并要求提案说明机制、备选方向、实际输入和可证伪预期。这份设计会进入反思与数据集绑定的经验。复制 JSON 就能扩展自己的方向，无须修改执行器。指南参考 [FunRec](https://github.com/datawhalechina/fun-rec)，并按发券的因果与预算约束适配；所列模型是研究线索，不代表已经全部集成为模型库。
 
+独立的 [ModelEvoHarness](https://github.com/CharlesXu-HQ/ModelEvoHarness) 通过 `third_party/model-evo-harness` Git submodule 接入。每次开启新搜索前，将 submodule 更新到最新 `main`，从该检出目录安装到主机环境；本次搜索、续跑和最终评估期间固定同一版本。使用 `--harness model-evo` 启用它。CouponEvo 仍负责候选执行和评估，并把外部源码提交及 catalog／实现摘要记录到搜索中。参见[安装说明与 GPU A/B 计划](docs/model-evo-harness.md)。该计划尚未执行，不代表已有性能提升。
+
 ## Dataset manifest
 
 输入是一份固定的随机对照数据，每个随机分配单位（通常为用户）占一行，至少要有干预/对照分组、有来源说明的分组概率、干预前特征和一个结果指标。有用户 ID 时可检查重复用户；没有时报告会提示这一限制。[Starbucks manifest](examples/starbucks.json) 给出了字段映射。评估器禁止把分组或结果字段作为特征；如果有逐行特征时点，还可检查特征是否早于分组。

@@ -460,7 +460,8 @@ def main() -> None:
     parser.add_argument("--unsafe-local-execution", action="store_true", help="run generated code without isolation")
     parser.add_argument("--experience-dir", type=Path,
                         help="completed search journals for the same dataset and evaluation task")
-    parser.add_argument("--harness", type=Path, help="research harness JSON plugin for search/finalize")
+    parser.add_argument("--harness", type=Path,
+                        help="research harness JSON path or model-evo for search/finalize")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
     parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
     parser.add_argument("--agent-provider-url", help="API base URL or full chat/completions endpoint")

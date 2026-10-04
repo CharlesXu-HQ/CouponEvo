@@ -14,7 +14,7 @@ from typing import Callable
 from .data import load_dataset
 from .evaluate import Budget
 from .experience import load_experience
-from .harness import build_harness_context, harness_digest, research_history, validate_research
+from .harness import build_harness_context, harness_identity, research_history, validate_research
 
 
 def _sha(data: bytes) -> str:
@@ -188,7 +188,7 @@ def _task(manifest_path: Path, budget: Budget, seed: int, initial_candidate: Pat
                               for name in ("agent.py", "analysis.py", "provider.py", "search.py", "harness.py"))
     return {"dataset": data.source_sha256, "manifest": _sha(manifest_path.read_bytes()),
             "framework": _sha(framework), "initial_candidate": _sha(initial_candidate.read_bytes()),
-            "agent_workflow": _sha(agent_workflow), "harness": harness_digest(harness_path),
+            "agent_workflow": _sha(agent_workflow), "harness": harness_identity(harness_path),
             "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed,
             "objective": objective, "device": device, "strict_data": strict_data,
             "sandbox_image": sandbox_image,
@@ -244,7 +244,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             raise ValueError("candidate snapshot changed: seed")
         score = _score(report, objective)
         journal = {"task": task, "agent": agent_info,
-                   "harness": (build_harness_context(harness_path, manifest_path, seed, strict_data)
+                   "harness": (build_harness_context(harness_path, manifest_path, seed, strict_data,
+                                                     objective)
                                if harness_path is not None else None),
                    "experience": (load_experience(experience_dir, task)
                                   if experience_dir else []),
