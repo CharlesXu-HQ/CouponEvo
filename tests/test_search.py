@@ -2,11 +2,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
 from couponevo.evaluate import Budget
-from couponevo.search import run_search
+from couponevo.search import _validate_proposal, run_search
 
 
 class SearchTests(unittest.TestCase):
@@ -182,6 +183,8 @@ class SearchTests(unittest.TestCase):
             if len(contexts) == 2:
                 self.assertEqual(context["history"][-1]["reflection"]["lesson"],
                                  "The first policy selected nobody")
+            if context.get("experiment_budget_exhausted"):
+                return {"action": "stop", "reason": "Experiment budget reached"}
             return {"action": "experiment", "operator": "draft", "parent_ids": [],
                     "hypothesis": "A different allocation may improve activation",
                     "expected_result": "active policy value increases versus seed",
@@ -195,7 +198,8 @@ class SearchTests(unittest.TestCase):
                     "lesson": "The first policy selected nobody", "next_direction": "Try another allocation"}
 
         result = run_search(**self.kwargs, max_steps=2, proposer=propose, reflector=reflect)
-        self.assertEqual(len(contexts), 2)
+        self.assertEqual(len(contexts), 3)
+        self.assertTrue(contexts[-1]["experiment_budget_exhausted"])
         self.assertTrue(all("reflection" in step for step in result["steps"]))
         self.assertEqual(result["steps"][0]["expected_result"],
                          "active policy value increases versus seed")
@@ -233,10 +237,13 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(saved["steps"][0]["status"], "evaluated")
         self.assertNotIn("reflection", saved["steps"][0])
 
-        def unexpected(_):
-            self.fail("Resume must reflect the evaluated step, not propose again")
+        def after_reflection(context):
+            self.assertEqual(context["history"][-1]["reflection"]["lesson"],
+                             "Try a different policy")
+            self.assertTrue(context["experiment_budget_exhausted"])
+            return {"action": "stop", "reason": "Experiment budget reached"}
 
-        resumed = run_search(**self.kwargs, max_steps=1, proposer=unexpected, resume=True,
+        resumed = run_search(**self.kwargs, max_steps=1, proposer=after_reflection, resume=True,
                              reflector=lambda observation: {
                                  "verdict": "inconclusive", "evidence": "No clear gain",
                                  "lesson": "Try a different policy", "next_direction": "Stop"})
@@ -338,6 +345,154 @@ class SearchTests(unittest.TestCase):
                                     "lesson": "Do not use that feature", "next_direction": "Try another feature"})
         self.assertEqual(result["best_id"], "seed")
         self.assertEqual(result["steps"][0]["eligibility"], "blocked_reflection")
+
+    def test_non_tlearner_candidate_is_evaluated(self):
+        source = self.seed.read_text().replace("from econml.metalearners import TLearner\n", "")
+        old = ("        learner = TLearner(models=TorchRidgeRegressor(device=device))\n"
+               "        learner.fit(y, arm, X=x_train)\n"
+               "        result[f\"{name}_uplift\"] = learner.effect(x_target)\n")
+        new = ("        control = TorchRidgeRegressor(device=device).fit(x_train[arm == 0], y[arm == 0])\n"
+               "        treated = TorchRidgeRegressor(device=device).fit(x_train[arm == 1], y[arm == 1])\n"
+               "        result[f\"{name}_uplift\"] = treated.predict(x_target) - control.predict(x_target)\n")
+        self.assertIn(old, source)
+        source = source.replace(old, new).replace('"econml.TLearner"', '"two-arm torch ridge"')
+        result = run_search(**self.kwargs, max_steps=1, proposer=lambda _: {
+            "operator": "draft", "parent_ids": [], "hypothesis": "Fit arm models directly",
+            "approach": "Two independent Torch ridge models",
+            "candidate_py": source})
+        self.assertEqual(result["steps"][0]["status"], "evaluated")
+        self.assertEqual(result["steps"][0]["approach"], "Two independent Torch ridge models")
+
+    def test_request_data_persists_without_a_candidate_evaluation(self):
+        request = {"action": "request_data", "reason": "The response depends on a missing prior-use signal",
+                   "feature_request": {"name": "prior_coupon_use", "definition": "Count of coupons used before assignment",
+                                       "source": "coupon event log", "as_of": "Before treatment assignment",
+                                       "evidence": "Validation errors cluster among repeat recipients",
+                                       "validation_plan": "Check event timestamps and missingness, then rerun search on a new dataset"}}
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        with patch("couponevo.search._evaluate", return_value=report) as evaluate:
+            result = run_search(**self.kwargs, max_steps=2, proposer=lambda _: request)
+        self.assertEqual(evaluate.call_count, 1)
+        self.assertEqual(result["steps"], [])
+        saved = json.loads((self.root / "runs/agent-search/feature_request.json").read_text())
+        self.assertEqual(saved, result["data_request"])
+        self.assertEqual(saved["feature_request"], request["feature_request"])
+        self.assertEqual(saved["dataset_sha256"], result["task"]["dataset"])
+        self.assertEqual(saved["after_step"], 0)
+        self.assertEqual(json.loads((self.root / "runs/agent-search/journal.json").read_text()), result)
+        with self.assertRaisesRegex(ValueError, "data request"):
+            run_search(**self.kwargs, max_steps=3, proposer=lambda _: self.fail("unexpected proposal"), resume=True)
+
+    def test_request_data_requires_actionable_fields(self):
+        valid = {"action": "request_data", "reason": "Cannot test without the field",
+                 "feature_request": {"name": "history", "definition": "Prior use count",
+                                     "source": "event log", "as_of": "Before assignment",
+                                     "evidence": "Validation slice error", "validation_plan": "Audit timing and coverage"}}
+        invalid = [{**valid, "reason": " "}, {**valid, "feature_request": "history"},
+                   {**valid, "feature_request": {**valid["feature_request"], "as_of": " "}},
+                   {**valid, "feature_request": {key: value for key, value in
+                                                 valid["feature_request"].items() if key != "validation_plan"}}]
+        for proposal in invalid:
+            with self.subTest(proposal=proposal), self.assertRaisesRegex(ValueError, "request_data"):
+                _validate_proposal(proposal, {})
+
+    def test_last_reflection_can_request_data_at_experiment_limit(self):
+        contexts = []
+        request = {"action": "request_data", "reason": "The completed experiment points to a missing field",
+                   "feature_request": {"name": "prior_coupon_use", "definition": "Earlier coupon count",
+                                       "source": "event log", "as_of": "Before assignment",
+                                       "evidence": "Last validation result", "validation_plan": "Audit timing"}}
+
+        def propose(context):
+            contexts.append(context)
+            if len(contexts) == 1:
+                return {"operator": "draft", "parent_ids": [], "hypothesis": "Try a revision",
+                        "candidate_py": self.seed.read_text() + "\n# revision\n"}
+            self.assertTrue(context["experiment_budget_exhausted"])
+            return request
+
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        with patch("couponevo.search._evaluate", return_value=report) as evaluate:
+            result = run_search(**self.kwargs, max_steps=1, proposer=propose,
+                                reflector=lambda _: {"verdict": "inconclusive", "evidence": "No gain",
+                                                     "lesson": "Need prior-use data", "next_direction": "Request field"})
+        self.assertEqual(len(contexts), 2)
+        self.assertEqual(evaluate.call_count, 2)
+        self.assertEqual(result["data_request"]["after_step"], 1)
+
+    def test_experiment_proposed_after_limit_is_not_run_or_requested_again(self):
+        calls = []
+
+        def propose(context):
+            calls.append(context)
+            return {"operator": "draft", "parent_ids": [], "hypothesis": "Try a revision",
+                    "candidate_py": self.seed.read_text() + "\n# revision\n"}
+
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        with patch("couponevo.search._evaluate", return_value=report) as evaluate:
+            result = run_search(**self.kwargs, max_steps=1, proposer=propose,
+                                reflector=lambda _: {"verdict": "inconclusive", "evidence": "No gain",
+                                                     "lesson": "Try another mechanism", "next_direction": "Experiment"})
+            resumed = run_search(**self.kwargs, max_steps=1, proposer=lambda _: self.fail("unexpected proposal"),
+                                 reflector=lambda _: self.fail("unexpected reflection"), resume=True)
+        self.assertEqual(evaluate.call_count, 2)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[-1]["experiment_budget_exhausted"])
+        self.assertEqual(result["budget_exhausted_decision"],
+                         {"after_step": 1, "reason": "no_terminal_action"})
+        self.assertEqual(resumed, result)
+
+    def test_invalid_terminal_proposal_is_retried(self):
+        calls = []
+
+        def propose(context):
+            calls.append(context)
+            if len(calls) == 1:
+                return {"operator": "draft", "parent_ids": [], "hypothesis": "Try a revision",
+                        "candidate_py": self.seed.read_text() + "\n# revision\n"}
+            if len(calls) == 2:
+                return {"action": "unsupported"}
+            self.assertIn("proposal_error", context)
+            self.assertTrue(context["experiment_budget_exhausted"])
+            return {"action": "stop", "reason": "Experiment budget reached"}
+
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        with patch("couponevo.search._evaluate", return_value=report) as evaluate:
+            result = run_search(**self.kwargs, max_steps=1, proposer=propose,
+                                reflector=lambda _: {"verdict": "inconclusive", "evidence": "No gain",
+                                                     "lesson": "Need more evidence", "next_direction": "Stop"})
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(evaluate.call_count, 2)
+        self.assertEqual(result["stop"]["reason"], "Experiment budget reached")
+        self.assertNotIn("budget_exhausted_decision", result)
+
+    def test_larger_budget_allows_a_new_terminal_data_request(self):
+        calls = []
+        request = {"action": "request_data", "reason": "The second result needs prior-use data",
+                   "feature_request": {"name": "history", "definition": "Prior use count",
+                                       "source": "event log", "as_of": "Before assignment",
+                                       "evidence": "Second validation result", "validation_plan": "Audit timing"}}
+
+        def propose(context):
+            calls.append(context)
+            if len(calls) == 4:
+                self.assertTrue(context["experiment_budget_exhausted"])
+                return request
+            return {"operator": "draft", "parent_ids": [], "hypothesis": "Try a revision",
+                    "candidate_py": self.seed.read_text() + f"\n# revision {len(calls)}\n"}
+
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        def reflect(_):
+            return {"verdict": "inconclusive", "evidence": "No gain",
+                    "lesson": "Need more evidence", "next_direction": "Continue"}
+        with patch("couponevo.search._evaluate", return_value=report) as evaluate:
+            first = run_search(**self.kwargs, max_steps=1, proposer=propose, reflector=reflect)
+            self.assertEqual(first["budget_exhausted_decision"]["after_step"], 1)
+            second = run_search(**self.kwargs, max_steps=2, proposer=propose,
+                                reflector=reflect, resume=True)
+        self.assertEqual(evaluate.call_count, 3)
+        self.assertEqual(len(second["steps"]), 2)
+        self.assertEqual(second["data_request"]["after_step"], 2)
 
 
 if __name__ == "__main__":

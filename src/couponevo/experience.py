@@ -26,6 +26,7 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                     continue
                 reflection = step.get("reflection") or {}
                 lessons.append({"source_search": path.parent.name, "operator": step["operator"],
+                                "approach": (step.get("approach") or "")[:500],
                                 "hypothesis": step["hypothesis"][:500],
                                 "expected_result": (step.get("expected_result") or "")[:500],
                                 "status": step["status"],
@@ -33,7 +34,8 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                                                      if step["status"] == "evaluated" else None),
                                 "verdict": reflection.get("verdict"),
                                 "evidence": (reflection.get("evidence") or "")[:500],
-                                "lesson": (reflection.get("lesson") or "")[:500]})
+                                "lesson": (reflection.get("lesson") or "")[:500],
+                                "next_direction": (reflection.get("next_direction") or "")[:500]})
                 if len(lessons) >= limit:
                     return lessons
         except (KeyError, ValueError, TypeError, OSError):

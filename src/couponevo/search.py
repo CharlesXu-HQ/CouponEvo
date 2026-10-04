@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from .agent import _require_econml_revision
 from .data import load_dataset
 from .evaluate import Budget
 from .experience import load_experience
@@ -21,9 +20,9 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _save(path: Path, journal: dict) -> None:
+def _save(path: Path, payload: dict) -> None:
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(journal, ensure_ascii=False, indent=2) + "\n")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     temporary.replace(path)
 
 
@@ -80,7 +79,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
 def _context(journal: dict, root: Path) -> dict:
     history = [{"id": "seed", "status": "evaluated", "score": journal["baseline"]["score"]}]
     history.extend({key: step.get(key) for key in ("id", "status", "operator", "parent_ids",
-                                                   "hypothesis", "expected_result", "score", "error",
+                                                   "hypothesis", "approach", "expected_result", "score", "error",
                                                    "analysis", "analysis_error", "reflection",
                                                    "eligibility") if key in step}
                    for step in journal["steps"])
@@ -100,7 +99,8 @@ def _context(journal: dict, root: Path) -> dict:
         available[entry["id"]] = {"candidate_py": candidate.read_text(),
                                    "score": entry.get("score"), "status": entry["status"],
                                    "report": entry.get("report"), "error": entry.get("error"),
-                                   "analysis": entry.get("analysis")}
+                                   "analysis": entry.get("analysis"),
+                                   "approach": entry.get("approach")}
     return {"dataset_sha256": journal["task"]["dataset"],
             "manifest_sha256": journal["task"]["manifest"],
             "objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
@@ -112,10 +112,22 @@ def _context(journal: dict, root: Path) -> dict:
                 for item in journal.get("diagnoses", []))}
 
 
-def _validate_proposal(proposal: dict, available: dict, seed_source: str) -> dict:
+def _validate_proposal(proposal: dict, available: dict) -> dict:
     if not isinstance(proposal, dict):
         raise ValueError("Agent proposal must be an object")
     action = proposal.get("action", "experiment")
+    if not isinstance(action, str):
+        raise ValueError("Agent action must be experiment, diagnose, request_data, or stop")
+    if action == "request_data":
+        reason, request = proposal.get("reason"), proposal.get("feature_request")
+        fields = ("name", "definition", "source", "as_of", "evidence", "validation_plan")
+        if (not isinstance(reason, str) or not reason.strip() or not isinstance(request, dict) or
+                any(not isinstance(request.get(key), str) or not request[key].strip()
+                    for key in fields)):
+            raise ValueError("Agent request_data needs reason and feature_request with name, "
+                             "definition, source, as_of, evidence, and validation_plan")
+        return {"action": "request_data", "reason": reason.strip(),
+                "feature_request": {key: request[key].strip() for key in fields}}
     if action in {"stop", "diagnose"}:
         field = "reason" if action == "stop" else "question"
         value = proposal.get(field)
@@ -123,7 +135,7 @@ def _validate_proposal(proposal: dict, available: dict, seed_source: str) -> dic
             raise ValueError(f"Agent {action} needs {field}")
         return {"action": action, field: value.strip()}
     if action != "experiment":
-        raise ValueError("Agent action must be experiment, diagnose, or stop")
+        raise ValueError("Agent action must be experiment, diagnose, request_data, or stop")
     operator = proposal.get("operator")
     parents = proposal.get("parent_ids")
     required = {"draft": 0, "improve": 1, "debug": 1, "crossover": 2}
@@ -133,12 +145,14 @@ def _validate_proposal(proposal: dict, available: dict, seed_source: str) -> dic
     source = proposal.get("candidate_py")
     hypothesis = proposal.get("hypothesis")
     expected = proposal.get("expected_result", hypothesis)
+    approach = proposal.get("approach")
     gaps = proposal.get("feature_gaps_md")
     if gaps is None:
         gaps = ""
     if not isinstance(source, str) or not source.strip() or not isinstance(hypothesis, str) or \
             not hypothesis.strip() or not isinstance(expected, str) or not expected.strip() or \
-            not isinstance(gaps, str):
+            not isinstance(gaps, str) or (approach is not None and
+                                         (not isinstance(approach, str) or not approach.strip())):
         raise ValueError("Agent proposal needs candidate_py, hypothesis, expected_result, and optional feature_gaps_md")
     tree = ast.parse(source)
     allowed = {"__future__", "numpy", "pandas", "torch", "econml", "sklearn"}
@@ -149,12 +163,14 @@ def _validate_proposal(proposal: dict, available: dict, seed_source: str) -> dic
             raise ValueError("Agent candidate imports an unsupported module")
     if not any(isinstance(node, ast.FunctionDef) and node.name == "fit_predict" for node in tree.body):
         raise ValueError("Agent candidate is missing fit_predict")
-    _require_econml_revision(seed_source, source)
     if operator != "draft" and source == available[parents[0]]["candidate_py"]:
         raise ValueError("Agent candidate did not change its parent")
-    return {"action": "experiment", "operator": operator, "parent_ids": parents,
-            "hypothesis": hypothesis.strip(), "expected_result": expected.strip(),
-            "candidate_py": source.rstrip() + "\n", "feature_gaps_md": gaps.strip()}
+    validated = {"action": "experiment", "operator": operator, "parent_ids": parents,
+                 "hypothesis": hypothesis.strip(), "expected_result": expected.strip(),
+                 "candidate_py": source.rstrip() + "\n", "feature_gaps_md": gaps.strip()}
+    if approach is not None:
+        validated["approach"] = approach.strip()
+    return validated
 
 
 def _task(manifest_path: Path, budget: Budget, seed: int, initial_candidate: Path,
@@ -208,6 +224,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             raise ValueError("search was finalized")
         if "stop" in journal:
             raise ValueError("search was stopped by the Agent")
+        if "data_request" in journal:
+            raise ValueError("search has a data request; publish a new dataset and start a new search")
         _verify_candidates(journal, root)
     else:
         if root.exists():
@@ -231,7 +249,6 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                 "report": report},
                    "steps": [], "diagnoses": [], "best_id": "seed"}
         _save(journal_path, journal)
-    seed_source = (root / journal["baseline"]["candidate"]).read_text()
     while True:
         _verify_candidates(journal, root)
         pending = next((step for step in journal["steps"] if step["status"] == "pending"), None)
@@ -240,8 +257,10 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                 if step["status"] in {"evaluated", "failed"} and
                                 "reflection" not in step), None) if reflector else None
             if unreflected is not None:
+                assert reflector is not None
                 observation = {"objective": objective, "budget": journal["task"]["budget"],
                                "hypothesis": unreflected["hypothesis"],
+                               "approach": unreflected.get("approach"),
                                "expected_result": unreflected.get("expected_result",
                                                                    unreflected["hypothesis"]),
                                "status": unreflected["status"],
@@ -279,12 +298,21 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                     _save(journal_path, journal)
                     raise
                 continue
-            if len(journal["steps"]) >= max_steps:
+            exhausted = len(journal["steps"]) >= max_steps
+            if exhausted and (reflector is None or
+                              journal.get("budget_exhausted_decision", {}).get("after_step") == len(journal["steps"])):
                 break
             context = _context(journal, root)
+            if exhausted:
+                context["experiment_budget_exhausted"] = True
+            proposal: dict | None = None
             for attempt in range(2):
                 try:
-                    proposal = _validate_proposal(proposer(context), context["available"], seed_source)
+                    raw = proposer(context)
+                    proposal = _validate_proposal(raw, context["available"])
+                    if exhausted and proposal["action"] not in ("stop", "request_data"):
+                        proposal = None
+                        break
                     if proposal["action"] == "diagnose" and (
                             diagnoser is None or not context["diagnostic_available"]):
                         raise ValueError("diagnosis is unavailable until the next experiment")
@@ -296,12 +324,28 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             if _task(manifest_path, budget, seed, initial_candidate, objective, device,
                      strict_data, sandbox_image, experience_dir) != task:
                 raise RuntimeError("search task or dataset changed during proposal")
+            if proposal is None:
+                journal["budget_exhausted_decision"] = {"after_step": len(journal["steps"]),
+                                                        "reason": "no_terminal_action"}
+                _save(journal_path, journal)
+                break
             if proposal["action"] == "stop":
                 journal["stop"] = {"reason": proposal["reason"],
                                    "after_step": len(journal["steps"])}
                 _save(journal_path, journal)
                 break
+            if proposal["action"] == "request_data":
+                request = {"reason": proposal["reason"],
+                           "feature_request": proposal["feature_request"],
+                           "after_step": len(journal["steps"]),
+                           "dataset_sha256": task["dataset"],
+                           "manifest_sha256": task["manifest"]}
+                journal["data_request"] = request
+                _save(journal_path, journal)
+                _save(root / "feature_request.json", request)
+                break
             if proposal["action"] == "diagnose":
+                assert diagnoser is not None
                 diagnosis = diagnoser(context, proposal["question"])
                 if (not isinstance(diagnosis, dict) or
                         any(not isinstance(diagnosis.get(key), str) or
@@ -324,6 +368,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                        "candidate_sha256": candidate_sha,
                        **{key: proposal[key] for key in
                           ("operator", "parent_ids", "hypothesis", "expected_result")}}
+            if "approach" in proposal:
+                pending["approach"] = proposal["approach"]
             journal["steps"].append(pending)
             _save(journal_path, journal)
         if _task(manifest_path, budget, seed, initial_candidate, objective, device,
@@ -399,6 +445,8 @@ def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: P
                                  device, strict_data, sandbox_image, experience_dir):
         raise ValueError("search task, dataset, or evaluator changed")
     _verify_candidates(journal, root)
+    if "data_request" in journal:
+        raise ValueError("cannot finalize a search with a data request")
     if any(step["status"] == "pending" for step in journal["steps"]):
         raise ValueError("cannot finalize with a pending experiment")
     if "final" in journal:

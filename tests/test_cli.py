@@ -399,14 +399,27 @@ class RunTests(unittest.TestCase):
         self.assertEqual(call.call_count, 2)
         self.assertIn("return 1", candidate.read_text())
 
-    def test_agent_cannot_remove_econml_learner(self):
+    def test_agent_accepts_torch_transformed_outcome_candidate(self):
         candidate = self.root / "candidate.py"
         source = Path(__file__).resolve().parents[1] / "src/couponevo/candidate.py"
         candidate.write_bytes(source.read_bytes())
         report = self.root / "report.md"
         report.write_text("Report")
-        revised = candidate.read_text().replace("learner = TLearner(models=TorchRidgeRegressor(device=device))",
-                                                "learner = TorchRidgeRegressor(device=device)")
+        before = candidate.read_text()
+        old = ("        learner = TLearner(models=TorchRidgeRegressor(device=device))\n"
+               "        learner.fit(y, arm, X=x_train)\n"
+               "        result[f\"{name}_uplift\"] = learner.effect(x_target)")
+        new = ("        propensity = arm.mean()\n"
+               "        pseudo = y * (arm / propensity - (1 - arm) / (1 - propensity))\n"
+               "        model = TorchRidgeRegressor(device=device).fit(x_train, pseudo)\n"
+               "        result[f\"{name}_uplift\"] = model.predict(x_target)")
+        self.assertIn(old, before)
+        revised = (before.replace("from econml.metalearners import TLearner\n", "")
+                  .replace("from sklearn.base import BaseEstimator, RegressorMixin\n", "")
+                  .replace("class TorchRidgeRegressor(RegressorMixin, BaseEstimator):",
+                           "class TorchRidgeRegressor:")
+                  .replace(old, new)
+                  .replace('"econml.TLearner"', '"torch.transformed_outcome"'))
 
         class FakeResponse:
             def __enter__(self):
@@ -419,10 +432,12 @@ class RunTests(unittest.TestCase):
                 return json.dumps({"choices": [{"finish_reason": "stop", "message": {
                     "content": json.dumps({"candidate_py": revised})}}]}).encode()
 
-        with patch("urllib.request.urlopen", side_effect=[FakeResponse(), FakeResponse()]):
-            with self.assertRaisesRegex(ValueError, "EconML"):
-                revise_candidate_deepseek(candidate, report, api_key="test-key")
-        self.assertEqual(candidate.read_bytes(), source.read_bytes())
+        with patch("urllib.request.urlopen", return_value=FakeResponse()):
+            revise_candidate_deepseek(candidate, report, api_key="test-key")
+        self.assertIn("torch.transformed_outcome", candidate.read_text())
+        result = run_experiment(self.path, Budget("count", 0.2), seed=11,
+                                output=self.root / "runs", candidate_path=candidate)
+        self.assertEqual(result["model_device"], "cpu")
 
     def test_agent_command_rejects_code_only_change_and_restores_candidate(self):
         candidate = self.root / "candidate.py"
@@ -577,6 +592,10 @@ class RunTests(unittest.TestCase):
         self.assertEqual(first["steps"][0]["report"]["holdout"], "validation")
         self.assertEqual(first["agent"]["model"], "deepseek-flash")
         self.assertEqual(first["steps"][0]["reflection"]["lesson"], "Try another policy")
+        self.assertEqual(first["budget_exhausted_decision"],
+                         {"after_step": 1, "reason": "no_terminal_action"})
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[1]["experiment_budget_exhausted"])
         self.assertNotIn("test-key", journal_path.read_text())
 
         resumed_args = args.copy()
@@ -589,10 +608,15 @@ class RunTests(unittest.TestCase):
                     "lesson": "Try another policy", "next_direction": "Continue"}), \
                 patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
-        self.assertEqual(len(json.loads(journal_path.read_text())["steps"]), 2)
-        self.assertEqual(len(calls), 2)
-        self.assertIn("analysis", calls[1]["history"][-1])
-        self.assertIn("reflection", calls[1]["history"][-1])
+        resumed = json.loads(journal_path.read_text())
+        self.assertEqual(len(resumed["steps"]), 2)
+        self.assertEqual(resumed["budget_exhausted_decision"],
+                         {"after_step": 2, "reason": "no_terminal_action"})
+        self.assertEqual(len(calls), 4)
+        self.assertFalse(calls[2].get("experiment_budget_exhausted", False))
+        self.assertIn("analysis", calls[2]["history"][-1])
+        self.assertIn("reflection", calls[2]["history"][-1])
+        self.assertTrue(calls[3]["experiment_budget_exhausted"])
 
     def test_search_rejects_final_holdout(self):
         args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",

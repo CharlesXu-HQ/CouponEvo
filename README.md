@@ -16,11 +16,11 @@ The evolving artifact is the **candidate algorithm**, not the Agent. This versio
 
 | The Agent can change | The runner keeps fixed |
 | --- | --- |
-| EconML `TLearner` candidate code, including its PyTorch outcome models and an optional `choose_policy` allocation function | Dataset and manifest hashes, treatment probability, train/validation/test split, objective, budget, and evaluator |
-| Read same-task experience and validation history, then choose to diagnose, run an experiment, or stop; an experiment states a hypothesis and expected result | Independent policy estimates, budget checks, paired comparisons, and the final holdout |
-| A `feature_gaps.md` note when a useful pretreatment feature is missing | The dataset itself; missing features are proposed for a future dataset version, never invented for the current experiment |
+| Candidate-side uplift estimation, training, available pretreatment feature transformations, and optional `choose_policy` allocation code | Dataset and manifest hashes, treatment probability, train/validation/test split, objective, budget, and evaluator |
+| Read same-task experience and validation history, then diagnose, experiment, request data, or stop; an experiment states a hypothesis and expected result | Independent policy estimates, budget checks, paired comparisons, and the final holdout |
+| A `feature_gaps.md` note during an experiment, or a standalone structured data request when a useful pretreatment feature is missing | The dataset itself; missing features are proposed for a future dataset version, never invented for the current experiment |
 
-Generated candidates run in an isolated Docker container. After each experiment, the Agent compares the validation result with its expectation and records evidence, a dataset-bound lesson, and a next direction. The next decision receives that reflection, the recent candidate report, prior failures, and optional same-task experience. A diagnosis interprets existing validation evidence without running new candidate code; at most one diagnosis is allowed between experiments. The Agent may stop early. Each search retains code snapshots, reports, decisions, and failures for resumption. Optional experience reuse reads **validation history only** from finalized searches with the same dataset bytes, manifest, objective, budget, split seed, and evaluator. Changing the data creates a new experience scope. A reviewed feature-leakage flag, failed report analysis, or invalid reflection prevents a candidate from becoming the champion.
+Generated candidates run in an isolated Docker container. The candidate interface and requested device remain fixed, but the Agent is not tied to the seed's uplift estimator or model structure. After each experiment, the Agent compares the validation result with its expectation and records evidence, a dataset-bound lesson, and a next direction. The next decision receives that reflection, the recent candidate report, prior failures, and optional same-task experience. A diagnosis interprets existing validation evidence without running new candidate code; at most one diagnosis is allowed between experiments. The Agent may stop early. If a proposed feature needs data that the fixed dataset lacks, the Agent can save `feature_request.json` with its definition, source, pretreatment timing, supporting evidence, and validation plan. A human must publish a new dataset version before testing that hypothesis; it starts a new search, not a resume of the old one. Each search retains code snapshots, reports, decisions, and failures for resumption. Optional experience reuse reads **validation history only** from finalized searches with the same dataset bytes, manifest, objective, budget, split seed, and evaluator. Changing the data creates a new experience scope. A reviewed feature-leakage flag, failed report analysis, or invalid reflection prevents a candidate from becoming the champion.
 
 The primary question is **policy value**, not just uplift ranking: the evaluator estimates incremental outcomes from randomized assignments with inverse probability weighting (IPW), compares policies on the same users, and reports paired uncertainty intervals. Qini/AUUC remain ranking diagnostics. After exploration, `finalize` freezes the validation champion and compares it with the seed policy once on the held-out test set, including a paired bootstrap interval.
 
@@ -29,17 +29,18 @@ The paired estimator averages `(policy_new − policy_seed) × [treatment × out
 ```text
 fixed randomized data → Agent reads experience and validation history
                               ↓
-                    diagnose / experiment / stop
+              diagnose / experiment / request data / stop
                               ↓
       experiment → sandboxed training and validation → hypothesis reflection
                               └──── next Agent decision ────┘
                               ↓
-                    freeze candidate → final holdout
+       request data → human publishes new dataset → new search
+                    stop → freeze candidate → final holdout
 ```
 
 ## What the public experiment showed
 
-On the [84,534-row Starbucks randomized promotion dataset](examples/README.md), an earlier two-step DeepSeek Agent search ran EconML/PyTorch candidates on an RTX 5090. That run preceded the explicit reflection and stop actions described above. Its objective was incremental purchase conversion under an **assumed** send-cost budget.
+On the [84,534-row Starbucks randomized promotion dataset](examples/README.md), an earlier two-step DeepSeek Agent search ran EconML/PyTorch candidates on an RTX 5090. That run preceded the explicit reflection and stop actions described above and used the former T-learner-only search contract. Its objective was incremental purchase conversion under an **assumed** send-cost budget.
 
 | Candidate | Validation IPW incremental conversions per eligible user |
 | --- | ---: |
@@ -48,6 +49,8 @@ On the [84,534-row Starbucks randomized promotion dataset](examples/README.md), 
 | Agent proposal: MLP ensemble | 0.002957 |
 
 The validation winner's **held-out paired difference from the seed** was `+0.000118` conversions per user; its 95% bootstrap interval was `[-0.001065, +0.001301]`. The interval crosses zero, so this run **does not establish an improvement**. That distinction between a promising search result and a supported final claim is central to the project. See the [full search record](docs/research/agent-search-gpu-2026-10-03.md).
+
+The current open-candidate harness also ran an [EconML S-Learner with a PyTorch CUDA model](docs/research/open-candidate-gpu-validation-2026-10-04.md) on the full Starbucks dataset. This was a deterministic compatibility check, not a new DeepSeek proposal or a performance gain.
 
 Starbucks has neither App reactivation labels nor actual coupon redemption cost or user-level margin. Criteo and X5 RetailHero have also been used for [GPU model checks](docs/research/gpu-validation-2026-10-03.md), not for causal policy-value claims where the published data do not support the required treatment probability.
 

@@ -26,11 +26,13 @@ class ExperienceTests(unittest.TestCase):
                 journal = {"task": {**task, **changes},
                            "baseline": {"score": 0.01},
                            "steps": [{"status": "evaluated", "operator": "improve",
+                                      "approach": "Nonlinear interaction model",
                                       "hypothesis": name, "expected_result": "conversion rises",
                                       "score": 0.02,
                                       "reflection": {"verdict": "inconclusive",
                                                      "evidence": "No clear paired gain",
-                                                     "lesson": "Try a smaller policy"}}],
+                                                     "lesson": "Try a smaller policy",
+                                                     "next_direction": "Test a different mechanism"}}],
                            "final": {"report": {"private_test_metric": "NEVER_SEND_TO_AGENT"}}}
                 if name == "legacy-workflow":
                     del journal["task"]["agent_workflow"]
@@ -42,6 +44,8 @@ class ExperienceTests(unittest.TestCase):
             self.assertEqual(lessons[0]["validation_delta"], 0.01)
             self.assertEqual(lessons[0]["lesson"], "Try a smaller policy")
             self.assertEqual(lessons[0]["expected_result"], "conversion rises")
+            self.assertEqual(lessons[0]["approach"], "Nonlinear interaction model")
+            self.assertEqual(lessons[0]["next_direction"], "Test a different mechanism")
             self.assertEqual(lessons[0]["evidence"], "No clear paired gain")
             self.assertNotIn("NEVER_SEND_TO_AGENT", json.dumps(lessons))
 

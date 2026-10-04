@@ -55,6 +55,15 @@ class FinalizeSearchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "candidate snapshot changed"):
             finalize_search(**self.kwargs, bootstrap_reps=100)
 
+    def test_finalize_waits_for_new_dataset_after_data_request(self):
+        request = {"action": "request_data", "reason": "Missing pre-treatment history",
+                   "feature_request": {"name": "history", "definition": "Prior use count",
+                                       "source": "event log", "as_of": "Before assignment",
+                                       "evidence": "Validation failure", "validation_plan": "Audit timing"}}
+        run_search(**self.kwargs, max_steps=1, proposer=lambda _: request)
+        with self.assertRaisesRegex(ValueError, "data request"):
+            finalize_search(**self.kwargs, bootstrap_reps=100)
+
 
 if __name__ == "__main__":
     unittest.main()

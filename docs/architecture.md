@@ -10,11 +10,14 @@ flowchart LR
     D -->|experiment| F[Isolated candidate evaluation]
     F --> G[Compare result with hypothesis and save lesson]
     G --> C
+    D -->|request data| J[Save evidence and feature definition]
+    J --> K[Human publishes a new dataset version]
+    K --> B
     D -->|stop or step limit| H[Freeze eligible validation champion]
     H --> I[One final holdout comparison]
 ```
 
-`src/couponevo/data.py` validates the randomized data and declared pre-treatment features. `search.py` keeps the objective, budget, seed, manifest, evaluator, and candidate snapshots fixed for a resumable search. `agent.py` chooses whether to diagnose, experiment, or stop; experiment proposals choose among draft, improve, debug, and crossover. After each experiment, the Agent records a validation-only reflection against its expected result. `sandbox.py` executes generated code in a restricted Docker container. `evaluate.py` and `cli.py` produce policy estimates, cost checks, uncertainty intervals, and reports independently of the proposed candidate. A feature-leakage review flag, failed analysis, or invalid reflection blocks champion promotion.
+`src/couponevo/data.py` validates the randomized data and declared pre-treatment features. `search.py` keeps the objective, budget, seed, manifest, evaluator, and candidate snapshots fixed for a resumable search. `agent.py` chooses whether to diagnose, experiment, request data, or stop; experiment proposals choose among draft, improve, debug, and crossover without a fixed model family. After each experiment, the Agent records a validation-only reflection against its expected result. A standalone data request records a missing feature's definition, source, pretreatment timing, evidence, and validation plan, then ends the current search until a human publishes a new dataset version. `sandbox.py` executes generated code in a restricted Docker container. `evaluate.py` and `cli.py` produce policy estimates, cost checks, uncertainty intervals, and reports independently of the proposed candidate. A feature-leakage review flag, failed analysis, or invalid reflection blocks champion promotion.
 
 The journal contains within-search decisions, diagnoses, and hypothesis reflections. `experience.py` may summarize recent **validation-only** lessons, including failed experiments, from earlier finalized searches when the raw dataset SHA-256, manifest SHA-256, objective, budget, split seed, evaluator hash, and strict-data setting match. A changed CSV or manifest does not inherit that experience. No final holdout metric enters Agent context. A new run may intentionally start without reused experience by omitting `--experience-dir`.
 
