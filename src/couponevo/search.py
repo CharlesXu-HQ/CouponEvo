@@ -165,8 +165,11 @@ def _task(manifest_path: Path, budget: Budget, seed: int, initial_candidate: Pat
     framework = b"".join(Path(__file__).with_name(name).read_bytes()
                          for name in ("cli.py", "data.py", "evaluate.py", "sandbox.py",
                                       "sandbox_worker.py", "experience.py"))
+    agent_workflow = b"".join(Path(__file__).with_name(name).read_bytes()
+                              for name in ("agent.py", "analysis.py", "provider.py", "search.py"))
     return {"dataset": data.source_sha256, "manifest": _sha(manifest_path.read_bytes()),
             "framework": _sha(framework), "initial_candidate": _sha(initial_candidate.read_bytes()),
+            "agent_workflow": _sha(agent_workflow),
             "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed,
             "objective": objective, "device": device, "strict_data": strict_data,
             "sandbox_image": sandbox_image,
@@ -358,7 +361,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             review = review.get("max") or review.get("high") or {}
             if pending.get("analysis_error"):
                 pending["eligibility"] = "blocked_analysis_error"
-            elif review.get("feature_leakage", {}).get("flag") is True:
+            elif review.get("feature_leakage", {}).get("confirmed") is True:
                 pending["eligibility"] = "blocked_feature_leakage"
             elif reflector is not None:
                 pending["eligibility"] = "pending_reflection"

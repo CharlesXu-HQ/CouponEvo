@@ -1,0 +1,138 @@
+{
+  "run_id": "3139fe255f2e6ca3",
+  "dataset_sha256": "4d48190fd0d6a65d3874fa9a9ac79d89007579716366c2cfe140ae999088aa4f",
+  "framework_sha256": "a958cad5bf91372ca571474b7feeea8df9354517e4992238724c0260fb6ace83",
+  "manifest_sha256": "1c963282bbf9e40383020e74830e31f70e0b101fcad97b1d725327d2b78518b5",
+  "candidate_sha256": "b33bb91a155b11a0b108303db08ce10d3abcf2c766e12ac9e78b5b9df9e55361",
+  "prediction_sha256": "c57d198c7fa9b3430861fa800282f2e8d856f820d98c21e651fd759d0a99c3b2",
+  "split_sha256": "6d7b80e9fe783fe35818cd88a3149e842a51a2ae08bfc40b66c25d6529c0c3ba",
+  "budget": {
+    "kind": "cost",
+    "value": 0.03
+  },
+  "seed": 42,
+  "model_device": "cuda",
+  "cuda_peak_bytes": 76356096,
+  "execution": "docker:sha256:ec2754fb9f85d20060360fad9165fd272ea3d84c07e9301757c7bb42c62d6095",
+  "holdout": "test",
+  "holdout_size": 16907,
+  "features": [
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7"
+  ],
+  "outcome_columns": {
+    "conversion": "purchase"
+  },
+  "data_validation": {
+    "feature_timing": "declared_only",
+    "assignment_probability": "documented"
+  },
+  "available_outcomes": [
+    "conversion"
+  ],
+  "unavailable_objectives": [
+    "active",
+    "net_margin"
+  ],
+  "policies": {
+    "conversion": {
+      "selected_count": 3381,
+      "effects": {
+        "conversion": {
+          "mean": 0.003075649139409712,
+          "lower": 0.0014367823855404639,
+          "upper": 0.00471451589327896,
+          "se": 0.0008361565070761469
+        }
+      },
+      "predicted_cost_per_unit": 0.02999645117406991,
+      "assumed_cost": 0.02999645117406991,
+      "delta_vs_random": {
+        "conversion": 0.001537824569704856
+      }
+    },
+    "random": {
+      "selected_count": 3381,
+      "effects": {
+        "conversion": {
+          "mean": 0.001537824569704856,
+          "lower": 1.757075499484069e-05,
+          "upper": 0.003058078384414871,
+          "se": 0.0007756397013826609
+        }
+      },
+      "predicted_cost_per_unit": 0.029996451174069908,
+      "assumed_cost": 0.029996451174069908
+    }
+  },
+  "ranking_diagnostics": {
+    "conversion": {
+      "auuc": 0.0072561704230438605,
+      "qini": 0.001814637330242062
+    }
+  },
+  "policy_sha256": {
+    "conversion": "1aa757255e8f1d44ec13ea7e4aa780685cd594e5675e83f12931c030365bc40b",
+    "random": "32c833666df13646b32f5871fcd2818db9ca25fa22db6895e16caacad5b5c737"
+  },
+  "paired_vs_random": {
+    "conversion": {
+      "conversion": {
+        "mean": 0.001537824569704856,
+        "lower": -0.0004966371839782548,
+        "upper": 0.0035722863233879666,
+        "se": 0.0010379906906546484
+      }
+    }
+  },
+  "notes": [
+    "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+    "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+    "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+    "成本来自每位选中用户 0.15 的固定发券费用假设；策略成本按全体评估用户平均，不是实际核销成本。",
+    "发券选择使用预测成本；报告中的观测成本及区间可能超过预算。",
+    "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。",
+    "最终留出集的配对差值另用 2000 次用户级有放回抽样计算百分位区间。"
+  ],
+  "feature_gaps": null,
+  "compare_candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+  "compare_prediction_sha256": "ecccb81b3136b7ac028bb8572bd190470772bf1b3f64ba7c6cf5b264ca870a29",
+  "paired_vs_baseline": {
+    "conversion": {
+      "conversion": {
+        "mean": -0.00011829419766960431,
+        "lower": -0.001602943824543664,
+        "upper": 0.0013663554292044553,
+        "se": 0.0007574742994255406
+      }
+    }
+  },
+  "baseline_policy_sha256": {
+    "conversion": "6a9e5c9b1183e72b609ce79c57d305b8468819bac3557a3b6905f36afc16a171"
+  },
+  "paired_vs_random_bootstrap": {
+    "conversion": {
+      "conversion": {
+        "mean": 0.001537824569704856,
+        "lower": -0.0005914709883480216,
+        "upper": 0.0036671201277577335,
+        "se": 0.001028645499648466
+      }
+    }
+  },
+  "paired_vs_baseline_bootstrap": {
+    "conversion": {
+      "conversion": {
+        "mean": -0.00011829419766960431,
+        "lower": -0.0016561187673744602,
+        "upper": 0.0014195303720352516,
+        "se": 0.0007824717795485057
+      }
+    }
+  }
+}

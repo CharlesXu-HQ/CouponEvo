@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 _IDENTITY_FIELDS = ("dataset", "manifest", "objective", "budget", "seed", "framework",
-                    "strict_data")
+                    "agent_workflow", "strict_data")
 
 
 def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:

@@ -21,12 +21,18 @@ def _ask(provider: ApiProvider, effort: str, messages: list[dict]) -> dict:
             for name in FLAGS:
                 if not isinstance(answer.get(name), dict) or not isinstance(answer[name].get("flag"), bool):
                     raise ValueError(f"Agent analysis needs a boolean {name} flag")
+            leakage = answer["feature_leakage"]
+            if (not isinstance(leakage.get("confirmed"), bool) or
+                    (leakage["confirmed"] and
+                     (not leakage["flag"] or not isinstance(leakage.get("evidence"), str) or
+                      not leakage["evidence"].strip()))):
+                raise ValueError("feature_leakage needs confirmed=true only with a flagged, evidenced leak")
             return answer
         except ValueError:
             if attempt:
                 raise
             messages = [*messages, {"role": "user", "content":
-                        "The previous response was invalid. Return exactly one complete JSON object with summary, recommendation, and all three flag/evidence objects."}]
+                        "The previous response was invalid. Return exactly one complete JSON object with summary, recommendation, all three flag/evidence objects, and feature_leakage.confirmed (boolean)."}]
 
 
 def _review_reasons(prior: dict, report: dict, high: dict) -> list[str]:
@@ -66,7 +72,13 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
         "Analyze an offline randomized coupon uplift experiment. Return JSON with "
         "summary, recommendation, and uplift_anomaly, feature_leakage, "
         "cost_tradeoff_unclear objects, each containing flag (boolean) and evidence "
-        "(string). Use Chinese. Assess new versus old using paired_vs_baseline intervals; "
+        "(string); feature_leakage must also contain confirmed (boolean). Use Chinese. "
+        "feature_leakage.flag marks suspicion or confirmation and triggers independent review. "
+        "Set confirmed=true only with concrete evidence that a feature used by the candidate "
+        "contains treatment/outcome information or was measured after assignment. "
+        "feature_timing='declared_only' means timing is unverified, not proven leakage: "
+        "record the concern with flag=true, confirmed=false and explain the missing evidence. "
+        "Assess new versus old using paired_vs_baseline intervals; "
         "do not claim a final improvement from validation intervals or separate interval overlap. "
         "Check treatment timing for leakage and distinguish actual from assumed cost. "
         "Policy effects and costs are averaged over all eligible holdout users; "
@@ -93,11 +105,19 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
              high["summary"], "", f"建议：{high['recommendation']}", ""]
     for name in FLAGS:
         flag = high[name]
-        lines.append(f"- {name}：{'需复核' if flag['flag'] else '未发现'}；{flag.get('evidence', '')}")
+        status = "未发现"
+        if flag["flag"]:
+            status = ("已证实" if flag["confirmed"] else "风险待核验") if name == "feature_leakage" else "需复核"
+        lines.append(f"- {name}：{status}；{flag.get('evidence', '')}")
     lines.extend(["", f"## {provider.review_effort} 复核", ""])
     if maximum:
         lines.extend([f"触发项：{', '.join(reasons)}", "", maximum["summary"], "",
                       f"建议：{maximum['recommendation']}", ""])
+        leakage = maximum["feature_leakage"]
+        lines.append("- feature_leakage：" +
+                     ("已证实" if leakage["confirmed"] else
+                      "风险待核验" if leakage["flag"] else "未发现") +
+                     f"；{leakage.get('evidence', '')}")
     else:
         lines.extend(["未触发。", ""])
     (output_dir / "analysis.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")

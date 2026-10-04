@@ -1,0 +1,281 @@
+{
+  "run_id": "0919b599f7058396",
+  "dataset_sha256": "0e5893329d8b93cefecc571777672028290ab69865718020c78c7284f291aece",
+  "framework_sha256": "a958cad5bf91372ca571474b7feeea8df9354517e4992238724c0260fb6ace83",
+  "manifest_sha256": "2d26091e84245ffc50dc40ec2cc12006dd61c5b535a9c5635cab82519ae50d1d",
+  "candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+  "prediction_sha256": "a5814585df3b8a5dde57d03d8cc2be414c4121298edfdf22e8b50a2cefc39c85",
+  "split_sha256": "ddc41613524c9e3b976e18c48cd9b29922b24f1db74c18ae80a8576f63ba3317",
+  "budget": {
+    "kind": "count",
+    "value": 0.2
+  },
+  "seed": 42,
+  "model_device": "cuda",
+  "cuda_peak_bytes": 35922944,
+  "execution": "docker:sha256:ec2754fb9f85d20060360fad9165fd272ea3d84c07e9301757c7bb42c62d6095",
+  "holdout": "test",
+  "holdout_size": 8524,
+  "features": [
+    "recency",
+    "history_segment",
+    "history",
+    "mens",
+    "womens",
+    "zip_code",
+    "newbie",
+    "channel"
+  ],
+  "outcome_columns": {
+    "visit": "visit",
+    "conversion": "conversion",
+    "revenue": "spend"
+  },
+  "data_validation": {
+    "feature_timing": "declared_only",
+    "assignment_probability": "documented"
+  },
+  "available_outcomes": [
+    "visit",
+    "conversion",
+    "revenue"
+  ],
+  "unavailable_objectives": [
+    "active",
+    "net_margin"
+  ],
+  "policies": {
+    "visit": {
+      "selected_count": 1704,
+      "effects": {
+        "visit": {
+          "mean": 0.02041295166588456,
+          "lower": 0.011734116724127499,
+          "upper": 0.029091786607641626,
+          "se": 0.004427977011100542
+        },
+        "conversion": {
+          "mean": 0.0014077897700610043,
+          "lower": -0.0009370841726671025,
+          "upper": 0.0037526637127891114,
+          "se": 0.001196364256493932
+        },
+        "revenue": {
+          "mean": 0.16275926794931955,
+          "lower": -0.06662571385600485,
+          "upper": 0.39214424975464396,
+          "se": 0.11703315398230837
+        }
+      },
+      "delta_vs_random": {
+        "visit": 0.004927264195213514,
+        "revenue": 0.3133857343969967
+      }
+    },
+    "revenue": {
+      "selected_count": 1704,
+      "effects": {
+        "visit": {
+          "mean": 0.01337400281557954,
+          "lower": 0.005752628936627276,
+          "upper": 0.020995376694531807,
+          "se": 0.003888456060689931
+        },
+        "conversion": {
+          "mean": 0.0004692632566870014,
+          "lower": -0.0016878592536036794,
+          "upper": 0.002626385766977682,
+          "se": 0.00110057270933198
+        },
+        "revenue": {
+          "mean": -0.03687939934303146,
+          "lower": -0.3560995913520416,
+          "upper": 0.28234079266597867,
+          "se": 0.1628674449025562
+        }
+      },
+      "delta_vs_random": {
+        "visit": -0.002111684655091506,
+        "revenue": 0.1137470671046457
+      }
+    },
+    "random": {
+      "selected_count": 1704,
+      "effects": {
+        "visit": {
+          "mean": 0.015485687470671047,
+          "lower": 0.008579620971187802,
+          "upper": 0.02239175397015429,
+          "se": 0.00352350331606288
+        },
+        "conversion": {
+          "mean": -0.0007038948850305022,
+          "lower": -0.0019205972900023026,
+          "upper": 0.0005128075199412981,
+          "se": 0.0006207665331488777
+        },
+        "revenue": {
+          "mean": -0.15062646644767716,
+          "lower": -0.3866690084101829,
+          "upper": 0.0854160755148286,
+          "se": 0.12042986834821723
+        }
+      }
+    }
+  },
+  "ranking_diagnostics": {
+    "visit": {
+      "auuc": 0.039937212642317685,
+      "qini": 0.003921257691590324
+    },
+    "conversion": {
+      "auuc": 0.0016440729584350786,
+      "qini": -0.0009368749533434292
+    },
+    "revenue": {
+      "auuc": 0.1964090925756651,
+      "qini": -0.0692314517697126
+    }
+  },
+  "policy_sha256": {
+    "visit": "531b954145933d47ae02e3520087f34a9342ba645911918765597a7c91ee4e76",
+    "revenue": "003ba2f2a3cfd31e813f0d87b61e199c2f0c4dcd60ece82394d9b4c6059e2810",
+    "random": "ee51441e28470bed96380f3787d49234a91ec43390161d2e35c1f9da644ab2ea"
+  },
+  "paired_vs_random": {
+    "visit": {
+      "visit": {
+        "mean": 0.004927264195213514,
+        "lower": -0.004839067311887761,
+        "upper": 0.01469359570231479,
+        "se": 0.004982822197500651
+      },
+      "revenue": {
+        "mean": 0.31338573439699674,
+        "lower": -0.00970401659820791,
+        "upper": 0.6364754853922014,
+        "se": 0.16484170969143094
+      }
+    },
+    "revenue": {
+      "visit": {
+        "mean": -0.002111684655091506,
+        "lower": -0.011412579002778086,
+        "upper": 0.0071892096925950735,
+        "se": 0.004745354259023765
+      },
+      "revenue": {
+        "mean": 0.11374706710464572,
+        "lower": -0.11492066554579164,
+        "upper": 0.34241479975508304,
+        "se": 0.11666721053593743
+      }
+    }
+  },
+  "notes": [
+    "特征时点只由 manifest 声明，缺少逐行时间证据；不能据此确认无干预后特征。",
+    "随机分组概率已记录来源引用，但引用内容与试验执行情况仍需人工核对。",
+    "无用户 ID；按行切分，无法排除同一用户跨切分。",
+    "当前数据没有符合 App 活跃定义的标签；访问、点击或转化不得称为促活。",
+    "无成本字段；预算按选中人数比例计算。",
+    "配对区间基于同一批留出用户的逐用户 IPW 差值；多轮调参后的验证集区间不作为最终提升证据。",
+    "最终留出集的配对差值另用 2000 次用户级有放回抽样计算百分位区间。"
+  ],
+  "feature_gaps": null,
+  "compare_candidate_sha256": "7ccf6e49d71f83dd622f987528465b2f92b2152c28d78e4c48221103191a83fb",
+  "compare_prediction_sha256": "a5814585df3b8a5dde57d03d8cc2be414c4121298edfdf22e8b50a2cefc39c85",
+  "paired_vs_baseline": {
+    "visit": {
+      "visit": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      },
+      "revenue": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      }
+    },
+    "revenue": {
+      "visit": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      },
+      "revenue": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      }
+    }
+  },
+  "baseline_policy_sha256": {
+    "visit": "531b954145933d47ae02e3520087f34a9342ba645911918765597a7c91ee4e76",
+    "revenue": "003ba2f2a3cfd31e813f0d87b61e199c2f0c4dcd60ece82394d9b4c6059e2810"
+  },
+  "paired_vs_random_bootstrap": {
+    "visit": {
+      "visit": {
+        "mean": 0.004927264195213514,
+        "lower": -0.004223369310183012,
+        "upper": 0.0150222900046926,
+        "se": 0.004990245576198521
+      },
+      "revenue": {
+        "mean": 0.31338573439699674,
+        "lower": 0.03393101830126698,
+        "upper": 0.6539045049272639,
+        "se": 0.16399476532018753
+      }
+    },
+    "revenue": {
+      "visit": {
+        "mean": -0.002111684655091506,
+        "lower": -0.011027686532144533,
+        "upper": 0.007279446269357078,
+        "se": 0.004748665944988681
+      },
+      "revenue": {
+        "mean": 0.11374706710464572,
+        "lower": -0.10795389488503052,
+        "upper": 0.3636764429845142,
+        "se": 0.119940449889123
+      }
+    }
+  },
+  "paired_vs_baseline_bootstrap": {
+    "visit": {
+      "visit": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      },
+      "revenue": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      }
+    },
+    "revenue": {
+      "visit": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      },
+      "revenue": {
+        "mean": 0.0,
+        "lower": 0.0,
+        "upper": 0.0,
+        "se": 0.0
+      }
+    }
+  }
+}

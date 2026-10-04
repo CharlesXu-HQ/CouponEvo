@@ -249,13 +249,29 @@ class SearchTests(unittest.TestCase):
         proposal = lambda context: {"action": "experiment", "operator": "draft", "parent_ids": [],
                                     "hypothesis": "Try a new feature", "expected_result": "active rises",
                                     "candidate_py": self.seed.read_text() + "\n# feature trial\n"}
-        analysis = {"high": {"feature_leakage": {"flag": True}},
-                    "max": {"feature_leakage": {"flag": True}}}
+        analysis = {"high": {"feature_leakage": {"flag": True, "confirmed": True}},
+                    "max": {"feature_leakage": {"flag": True, "confirmed": True}}}
         with patch("couponevo.search._score", side_effect=[0.0, 1.0]):
             result = run_search(**self.kwargs, max_steps=1, proposer=proposal,
                                 analyzer=lambda *_: analysis)
         self.assertEqual(result["best_id"], "seed")
         self.assertEqual(result["steps"][0]["eligibility"], "blocked_feature_leakage")
+
+    def test_unverified_feature_timing_does_not_block_promotion(self):
+        from unittest.mock import patch
+
+        proposal = lambda context: {"action": "experiment", "operator": "draft", "parent_ids": [],
+                                    "hypothesis": "Try a new feature", "expected_result": "active rises",
+                                    "candidate_py": self.seed.read_text() + "\n# feature trial\n"}
+        analysis = {"high": {"feature_leakage": {"flag": True, "confirmed": True}},
+                    "max": {"feature_leakage": {"flag": True, "confirmed": False,
+                                                "evidence": "feature timing declared only"}}}
+        with patch("couponevo.search._score", side_effect=[0.0, 1.0]):
+            result = run_search(**self.kwargs, max_steps=1, proposer=proposal,
+                                analyzer=lambda *_: analysis)
+        self.assertEqual(result["best_id"], "step-001")
+        self.assertEqual(result["steps"][0]["eligibility"], "eligible")
+        self.assertTrue(result["steps"][0]["analysis"]["max"]["feature_leakage"]["flag"])
 
     def test_latest_result_is_visible_even_when_it_is_not_a_top_candidate(self):
         from unittest.mock import patch

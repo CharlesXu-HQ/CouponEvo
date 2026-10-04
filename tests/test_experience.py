@@ -10,12 +10,15 @@ class ExperienceTests(unittest.TestCase):
     def test_lessons_require_same_dataset_version_and_evaluation_task(self):
         task = {"dataset": "dataset-v1", "manifest": "manifest-v1", "objective": "conversion",
                 "budget": {"kind": "count", "value": 0.2}, "seed": 42,
-                "framework": "evaluator-v1", "strict_data": False}
+                "framework": "evaluator-v1", "agent_workflow": "reviewer-v1",
+                "strict_data": False}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             variants = (("matching", {}, True), ("changed-data", {"dataset": "dataset-v2"}, True),
                         ("changed-schema", {"manifest": "manifest-v2"}, True),
                         ("changed-objective", {"objective": "revenue"}, True),
+                        ("changed-workflow", {"agent_workflow": "reviewer-v2"}, True),
+                        ("legacy-workflow", {}, True),
                         ("unfinished", {}, False))
             for name, changes, finalized in variants:
                 path = root / name
@@ -29,6 +32,8 @@ class ExperienceTests(unittest.TestCase):
                                                      "evidence": "No clear paired gain",
                                                      "lesson": "Try a smaller policy"}}],
                            "final": {"report": {"private_test_metric": "NEVER_SEND_TO_AGENT"}}}
+                if name == "legacy-workflow":
+                    del journal["task"]["agent_workflow"]
                 if not finalized:
                     del journal["final"]
                 (path / "journal.json").write_text(json.dumps(journal))
@@ -43,7 +48,7 @@ class ExperienceTests(unittest.TestCase):
     def test_failed_experiments_can_supply_dataset_bound_lessons(self):
         task = {"dataset": "v1", "manifest": "m1", "objective": "active",
                 "budget": {"kind": "count", "value": 0.2}, "seed": 7,
-                "framework": "e1", "strict_data": False}
+                "framework": "e1", "agent_workflow": "a1", "strict_data": False}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "finished"
             path.mkdir()

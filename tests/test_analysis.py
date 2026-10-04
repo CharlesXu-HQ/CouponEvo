@@ -45,7 +45,7 @@ class AnalysisTests(unittest.TestCase):
         }
         self.high = {"summary": "Positive uplift with clear cost signal",
                      "uplift_anomaly": {"flag": False, "evidence": ""},
-                     "feature_leakage": {"flag": False, "evidence": ""},
+                     "feature_leakage": {"flag": False, "confirmed": False, "evidence": ""},
                      "cost_tradeoff_unclear": {"flag": False, "evidence": ""},
                      "recommendation": "Keep for further validation"}
 
@@ -113,14 +113,29 @@ class AnalysisTests(unittest.TestCase):
 
     def test_suspected_leakage_triggers_max_review(self):
         high = json.loads(json.dumps(self.high))
-        high["feature_leakage"] = {"flag": True, "evidence": "feature timing unverified"}
+        high["feature_leakage"] = {"flag": True, "confirmed": False,
+                                   "evidence": "feature timing unverified"}
         with patch("urllib.request.urlopen",
-                   side_effect=[FakeResponse(high), FakeResponse(self.high)]) as call:
+                   side_effect=[FakeResponse(high), FakeResponse(high)]) as call:
             result = analyze_reports_deepseek(self.report, self.report,
                                               candidate_path=self.candidate,
                                               output_dir=self.root, api_key="test-key")
         self.assertEqual(call.call_count, 2)
         self.assertIn("feature_leakage", result["review_reasons"])
+        self.assertFalse(result["max"]["feature_leakage"]["confirmed"])
+        self.assertIn("feature_leakage：风险待核验", (self.root / "analysis.md").read_text())
+
+    def test_leakage_confirmation_requires_consistent_schema(self):
+        invalid = json.loads(json.dumps(self.high))
+        invalid["feature_leakage"] = {"flag": False, "confirmed": True,
+                                      "evidence": "post-treatment feature"}
+        with patch("urllib.request.urlopen",
+                   side_effect=[FakeResponse(invalid), FakeResponse(self.high)]) as call:
+            result = analyze_reports_deepseek(self.report, self.report,
+                                              candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
+        self.assertFalse(result["high"]["feature_leakage"]["confirmed"])
 
 
 if __name__ == "__main__":
