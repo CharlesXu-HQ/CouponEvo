@@ -14,6 +14,7 @@ from typing import Callable
 from .data import load_dataset
 from .evaluate import Budget
 from .experience import load_experience
+from .harness import build_harness_context, harness_digest, research_history, validate_research
 
 
 def _sha(data: bytes) -> str:
@@ -79,7 +80,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
 def _context(journal: dict, root: Path) -> dict:
     history = [{"id": "seed", "status": "evaluated", "score": journal["baseline"]["score"]}]
     history.extend({key: step.get(key) for key in ("id", "status", "operator", "parent_ids",
-                                                   "hypothesis", "approach", "expected_result", "score", "error",
+                                                   "hypothesis", "approach", "research", "expected_result", "score", "error",
                                                    "analysis", "analysis_error", "reflection",
                                                    "eligibility") if key in step}
                    for step in journal["steps"])
@@ -106,6 +107,8 @@ def _context(journal: dict, root: Path) -> dict:
             "objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
             "history": history, "available": available, "best_id": journal["best_id"],
             "experience": journal.get("experience", []),
+            "harness": journal.get("harness"),
+            "research_history": research_history(journal["steps"]),
             "diagnoses": journal.get("diagnoses", []),
             "diagnostic_available": not any(
                 item["after_step"] == len(journal["steps"])
@@ -176,16 +179,16 @@ def _validate_proposal(proposal: dict, available: dict) -> dict:
 def _task(manifest_path: Path, budget: Budget, seed: int, initial_candidate: Path,
           objective: str, device: str, strict_data: bool,
           sandbox_image: str | None = None,
-          experience_dir: Path | None = None) -> dict:
+          experience_dir: Path | None = None, harness_path: Path | None = None) -> dict:
     data = load_dataset(manifest_path, strict=strict_data)
     framework = b"".join(Path(__file__).with_name(name).read_bytes()
                          for name in ("cli.py", "data.py", "evaluate.py", "sandbox.py",
                                       "sandbox_worker.py", "experience.py"))
     agent_workflow = b"".join(Path(__file__).with_name(name).read_bytes()
-                              for name in ("agent.py", "analysis.py", "provider.py", "search.py"))
+                              for name in ("agent.py", "analysis.py", "provider.py", "search.py", "harness.py"))
     return {"dataset": data.source_sha256, "manifest": _sha(manifest_path.read_bytes()),
             "framework": _sha(framework), "initial_candidate": _sha(initial_candidate.read_bytes()),
-            "agent_workflow": _sha(agent_workflow),
+            "agent_workflow": _sha(agent_workflow), "harness": harness_digest(harness_path),
             "budget": {"kind": budget.kind, "value": budget.value}, "seed": seed,
             "objective": objective, "device": device, "strict_data": strict_data,
             "sandbox_image": sandbox_image,
@@ -200,7 +203,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                reflector: Callable[[dict], dict] | None = None,
                diagnoser: Callable[[dict, str], dict] | None = None,
                agent_info: dict | None = None, sandbox_image: str | None = None,
-               experience_dir: Path | None = None) -> dict:
+               experience_dir: Path | None = None, harness_path: Path | None = None) -> dict:
     """Run up to max_steps candidate experiments; Agent actions see validation only."""
     if max_steps < 1 or timeout_seconds < 1:
         raise ValueError("max_steps and timeout_seconds must be positive")
@@ -209,7 +212,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
     manifest_path, initial_candidate, output = (Path(path).resolve() for path in
                                                 (manifest_path, initial_candidate, output))
     task = _task(manifest_path, budget, seed, initial_candidate, objective, device, strict_data,
-                 sandbox_image, experience_dir)
+                 sandbox_image, experience_dir, harness_path)
     root = output / search_id
     journal_path = root / "journal.json"
     if resume:
@@ -241,6 +244,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             raise ValueError("candidate snapshot changed: seed")
         score = _score(report, objective)
         journal = {"task": task, "agent": agent_info,
+                   "harness": (build_harness_context(harness_path, manifest_path, seed, strict_data)
+                               if harness_path is not None else None),
                    "experience": (load_experience(experience_dir, task)
                                   if experience_dir else []),
                    "baseline": {"id": "seed", "status": "evaluated",
@@ -261,6 +266,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                 observation = {"objective": objective, "budget": journal["task"]["budget"],
                                "hypothesis": unreflected["hypothesis"],
                                "approach": unreflected.get("approach"),
+                               "research": unreflected.get("research"),
                                "expected_result": unreflected.get("expected_result",
                                                                    unreflected["hypothesis"]),
                                "status": unreflected["status"],
@@ -310,6 +316,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                 try:
                     raw = proposer(context)
                     proposal = _validate_proposal(raw, context["available"])
+                    if journal.get("harness") and proposal["action"] == "experiment" and not exhausted:
+                        proposal["research"] = validate_research(raw, journal["harness"])
                     if exhausted and proposal["action"] not in ("stop", "request_data"):
                         proposal = None
                         break
@@ -322,7 +330,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                         raise
                     context = {**context, "proposal_error": str(error)}
             if _task(manifest_path, budget, seed, initial_candidate, objective, device,
-                     strict_data, sandbox_image, experience_dir) != task:
+                     strict_data, sandbox_image, experience_dir, harness_path) != task:
                 raise RuntimeError("search task or dataset changed during proposal")
             if proposal is None:
                 journal["budget_exhausted_decision"] = {"after_step": len(journal["steps"]),
@@ -370,10 +378,12 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                           ("operator", "parent_ids", "hypothesis", "expected_result")}}
             if "approach" in proposal:
                 pending["approach"] = proposal["approach"]
+            if "research" in proposal:
+                pending["research"] = proposal["research"]
             journal["steps"].append(pending)
             _save(journal_path, journal)
         if _task(manifest_path, budget, seed, initial_candidate, objective, device,
-                 strict_data, sandbox_image, experience_dir) != task:
+                 strict_data, sandbox_image, experience_dir, harness_path) != task:
             raise RuntimeError("search task or dataset changed before evaluation")
         candidate = root / pending["candidate"]
         parent_id = pending["parent_ids"][0] if pending["parent_ids"] else journal["best_id"]
@@ -426,7 +436,7 @@ def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: P
                     device: str = "cpu", strict_data: bool = False,
                     timeout_seconds: int = 3600, bootstrap_reps: int = 2000,
                     sandbox_image: str | None = None,
-                    experience_dir: Path | None = None) -> dict:
+                    experience_dir: Path | None = None, harness_path: Path | None = None) -> dict:
     """Evaluate the frozen validation champion against the seed once on test."""
     if bootstrap_reps < 2 or timeout_seconds < 1:
         raise ValueError("finalize needs at least two bootstrap resamples and a positive timeout")
@@ -442,7 +452,7 @@ def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: P
     if experience_dir is None and journal["task"].get("experience_dir"):
         experience_dir = Path(journal["task"]["experience_dir"])
     if journal["task"] != _task(manifest_path, budget, seed, initial_candidate, objective,
-                                 device, strict_data, sandbox_image, experience_dir):
+                                 device, strict_data, sandbox_image, experience_dir, harness_path):
         raise ValueError("search task, dataset, or evaluator changed")
     _verify_candidates(journal, root)
     if "data_request" in journal:

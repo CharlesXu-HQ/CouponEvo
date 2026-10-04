@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "name": "coupon-research",
+  "guidance": "Use these overlapping research lenses to form evidence-backed hypotheses, not a fixed menu or a model popularity contest. New directions and combinations are allowed. Match each idea to actual pretreatment inputs, outcome labels, sample support, compute budget and the binary coupon policy contract. Compare one identifiable mechanism at a time where practical. Existing aggregate columns do not imply access to their underlying events. Keep missing-data requests actionable. Model names below are illustrative references, not installed implementations. FunRec provides recommendation mechanisms; causal estimation and policy evaluation remain CouponEvo responsibilities.",
+  "sources": [
+    "https://github.com/datawhalechina/fun-rec",
+    "https://github.com/datawhalechina/fun-rec/tree/master/src/funrec/features",
+    "https://github.com/datawhalechina/fun-rec/tree/master/src/funrec/models"
+  ],
+  "directions": [
+    {
+      "name": "Treatment-effect estimation and treatment response structure",
+      "question": "Is error caused by pooling treatment responses, estimating separate outcomes, or noisy effect targets?",
+      "requires": "Random assignment, both arms, observed outcomes, and declared pretreatment covariates; nuisance models must satisfy the PyTorch device contract.",
+      "experiment": "Compare pooled treatment interactions, separate or shared response heads, residual or doubly robust targets with training-only cross-fitting, or other defensible effect estimators. State how predictions become a treatment effect.",
+      "pitfalls": "A response or propensity score is not uplift. Do not change known assignment probabilities, use post-treatment features, or introduce CPU estimators under a CUDA task. Recommender multi-tower models are not causal estimators by themselves."
+    },
+    {
+      "name": "Feature representation and preprocessing",
+      "question": "Do encoding, sparsity, missingness or feature scales limit generalization?",
+      "requires": "Actual declared columns and their training-only profile; semantic assumptions must have evidence.",
+      "experiment": "Test train-fitted normalization, missingness indicators, categorical embeddings, rare-category handling, discretization, feature selection or representation sharing. Compare with the same effect estimator and policy.",
+      "pitfalls": "Low-cardinality numbers do not prove categorical meaning. Fit vocabularies, thresholds and transformations on training data; never encode validation outcomes. Anonymous features cannot be assigned invented business meanings."
+    },
+    {
+      "name": "Explicit and learned feature interactions",
+      "question": "Which dependency is missed by additive effects or the current implicit network?",
+      "requires": "Available pretreatment fields with enough joint support; raw inputs and transformation must be specified.",
+      "experiment": "Compare expert crosses, linear plus deep paths, low-rank pair interactions, explicit cross layers or attention-based interactions. FM/DeepFM, DCN, xDeepFM, PNN, FiBiNET and AutoInt illustrate distinct mechanisms. Ablate the interaction component.",
+      "pitfalls": "More parameters alone do not isolate interaction benefit. Sparse combinations can overfit. A cross of existing columns can run now; aggregating absent event histories needs a new dataset."
+    },
+    {
+      "name": "Behavior history, sequence and interest representation",
+      "question": "Does order, recency, session context or target-dependent interest add information beyond static aggregates?",
+      "requires": "Actual pretreatment events or encoded sequences, ordering/cutoff semantics, masks, and target context for target-conditioned attention.",
+      "experiment": "Compare aggregate pooling with recency weighting, attention or sequential encoders when supported. DIN, DIEN, DSIN and SASRec suggest distinct history mechanisms; choose by the available sequence contract.",
+      "pitfalls": "A table row is not a sequence. A single recency value cannot reconstruct events. Do not fabricate item queries, histories or negative events; request them with an assignment-time cutoff."
+    },
+    {
+      "name": "Multiple outcomes and task dependence",
+      "question": "Can shared information improve the fixed primary objective without negative transfer?",
+      "requires": "Multiple actual outcome/cost labels, their observation windows and population definitions; funnel dependence needs evidence.",
+      "experiment": "Compare separate models with shared-bottom, gated experts or shared/private representations; MMOE and PLE are examples. Test auxiliary loss weighting or conditional task factorization with ablations while selecting on the original policy objective.",
+      "pitfalls": "Do not invent auxiliary labels, assume every conversion follows a recorded click, or replace the objective with a weighted metric. ESMM-style funnel assumptions do not hold automatically for coupons."
+    },
+    {
+      "name": "Scenario heterogeneity and conditional parameters",
+      "question": "Do observed user contexts require different response mechanisms or different amounts of parameter sharing?",
+      "requires": "Declared pretreatment scenario/context fields, adequate arm support within scenarios, and a common estimand.",
+      "experiment": "Compare pooled parameters with shared/private towers, context gates or generated parameters. STAR, APG and PEPNet illustrate sharing choices. Assess support and negative transfer before increasing specialization.",
+      "pitfalls": "Do not infer scenario semantics from anonymous columns or treat treatment assignment as a pretreatment scenario. Multiple coupon actions require an expanded task/evaluator, not a silent binary-model change."
+    },
+    {
+      "name": "Training dynamics, regularization and stability",
+      "question": "Is the observed limitation optimization, rare outcomes, variance or representation capacity?",
+      "requires": "Training data, existing validation evidence and a feasible GPU resource budget.",
+      "experiment": "Test objective-appropriate losses, regularization, batch construction, learning schedules, internal train-only stopping splits or honest cross-fitting. Explain why a parameter change tests a mechanism rather than repeating unsupported tuning.",
+      "pitfalls": "Weights or resampling change the learned target unless corrected. Never rebalance the evaluation population, use final-test labels, or count correlated runs as independent evidence."
+    },
+    {
+      "name": "Calibration, model combination and uncertainty",
+      "question": "Are unstable effect or cost magnitudes harming allocation despite useful ordering?",
+      "requires": "Train-only or out-of-fold evidence for fitted calibration/combination; applicable outcome and cost definitions.",
+      "experiment": "Compare calibrated response heads, shrinkage, complementary ensembles or uncertainty-aware scores. Isolate whether improvement comes from ranking, magnitude or selection changes.",
+      "pitfalls": "Outcome calibration is not proof of individual effect calibration. Predicted model variance is not a causal confidence interval. Keep evaluator paired intervals independent of candidate fitting."
+    },
+    {
+      "name": "Budget allocation and policy selection",
+      "question": "Does a better feasible selection rule convert estimates into greater incremental value?",
+      "requires": "The fixed objective and budget; observed cost or an explicit fixed-send assumption for cost-based allocation.",
+      "experiment": "Use choose_policy to compare thresholds, effect-versus-cost tradeoffs, shrinkage near the cutoff or feasible allocation rules using the same predictions. Preserve one boolean decision per user.",
+      "pitfalls": "Do not relabel assumed send cost as redemption cost or revenue as margin. Item/slate diversity and listwise reranking objectives cannot be substituted for single-action coupon policy value."
+    },
+    {
+      "name": "Event-derived expert features and data acquisition",
+      "question": "What specific missing measurement prevents the next useful hypothesis from being tested?",
+      "requires": "Evidence of a limitation and an identifiable source with pretreatment availability.",
+      "experiment": "Specify the entity, aggregation window, group/cross keys, missingness policy, assignment cutoff and validation plan for a human-produced dataset. Window-by-price-band behavior is one possible hypothesis, not a required feature template.",
+      "pitfalls": "Feature requests are hypotheses, not observed causes. Do not claim subgroup errors without subgroup evidence. Current aggregate columns cannot supply finer windows or event dimensions that were never recorded."
+    },
+    {
+      "name": "Retrieval, collaborative, pretrained and generative representations",
+      "question": "Could external interaction structure or a richer representation improve the response model under the existing decision contract?",
+      "requires": "Actual interaction edges, item/user context, sequences or documented pretrained representations with time-safe provenance, plus executable support in the candidate sandbox.",
+      "experiment": "When prerequisites exist, compare a simple encoding with collaborative, two-tower, graph or sequence-derived representations. Treat generative representations as an evidence-driven extension whose output still feeds valid treatment-effect estimates.",
+      "pitfalls": "FunRec retrieval and generative chapters often assume an item universe or recommendation sequence absent from a binary coupon dataset. Do not generate synthetic RCT evidence or silently add retrieval, multi-action or online feedback semantics. Missing prerequisites call for data or a separate contract change."
+    }
+  ]
+}

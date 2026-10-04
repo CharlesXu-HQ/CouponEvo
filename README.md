@@ -54,6 +54,10 @@ The current open-candidate harness also ran an [EconML S-Learner with a PyTorch 
 
 Starbucks has neither App reactivation labels nor actual coupon redemption cost or user-level margin. Criteo and X5 RetailHero have also been used for [GPU model checks](docs/research/gpu-validation-2026-10-03.md), not for causal policy-value claims where the published data do not support the required treatment probability.
 
+## Plug in a research harness
+
+Add `--harness harnesses/coupon-research.json` to `search`, `--resume`, and `finalize` to enable the [research harness plugin](docs/harness.md). It supplies categorized, non-exhaustive research guidance, a training-partition feature profile, and a required experiment design covering mechanism, alternatives, available inputs and falsification. The design follows the candidate through reflection and dataset-bound experience. Copy the JSON to add your own directions without modifying the runner. The guide draws on [FunRec](https://github.com/datawhalechina/fun-rec) and adapts recommendation mechanisms to causal coupon experiments; it is not a bundled implementation of every referenced model.
+
 ## Dataset manifest
 
 CouponEvo expects a fixed randomized dataset with one row per assignment unit (usually a user), a treatment/control assignment, a documented assignment probability, pretreatment features, and at least one measured outcome. A user ID lets the loader check for duplicate users; without one, it reports that limitation. A manifest such as [examples/starbucks.json](examples/starbucks.json) declares that contract. The evaluator rejects outcome or treatment columns used as features and can check row-level feature timestamps when provided.

@@ -460,12 +460,15 @@ def main() -> None:
     parser.add_argument("--unsafe-local-execution", action="store_true", help="run generated code without isolation")
     parser.add_argument("--experience-dir", type=Path,
                         help="completed search journals for the same dataset and evaluation task")
+    parser.add_argument("--harness", type=Path, help="research harness JSON plugin for search/finalize")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
     parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
     parser.add_argument("--agent-provider-url", help="API base URL or full chat/completions endpoint")
     parser.add_argument("--agent-api-key-env", help="environment variable holding the API key")
     parser.add_argument("--agent-model", help="Agent model override; DeepSeek defaults to deepseek-flash")
     args = parser.parse_args()
+    if args.harness and args.command not in {"search", "finalize"}:
+        parser.error("--harness is supported by search and finalize")
     if args.command in {"agent", "search"} and args.final:
         parser.error("agent revisions and search must use validation; run --final separately after selection")
     if args.command in {"search", "finalize"} and (not args.objective or not args.search_id):
@@ -513,7 +516,7 @@ def main() -> None:
                                  strict_data=args.strict_data, timeout_seconds=args.timeout_seconds,
                                  bootstrap_reps=args.bootstrap_reps or 2000,
                                  sandbox_image=args.sandbox_image,
-                                 experience_dir=args.experience_dir)
+                                 experience_dir=args.experience_dir, harness_path=args.harness)
         print(args.output / args.search_id / "final" / report["run_id"] / "report.md")
         return
     if args.command == "search":
@@ -527,7 +530,7 @@ def main() -> None:
                              device=args.device, strict_data=args.strict_data,
                              resume=args.resume, timeout_seconds=args.timeout_seconds,
                              sandbox_image=args.sandbox_image,
-                             experience_dir=args.experience_dir,
+                             experience_dir=args.experience_dir, harness_path=args.harness,
                              agent_info={"provider_url": api_provider.url, "model": api_provider.model,
                                          "thinking": api_provider.thinking,
                                          "iteration_effort": api_provider.iteration_effort,

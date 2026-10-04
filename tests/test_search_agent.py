@@ -45,6 +45,17 @@ class SearchAgentTests(unittest.TestCase):
         self.assertIn("experiment_budget_exhausted", body["messages"][0]["content"])
         self.assertIn("Unverified feature timing", body["messages"][0]["content"])
 
+    def test_harness_reaches_provider_with_open_research_contract(self):
+        self.context["harness"] = {"plugin": {"name": "custom-research", "directions": []},
+                                   "dataset_profile": {"features": {"x": {"dtype": "float64"}}}}
+        with patch("urllib.request.urlopen", return_value=FakeResponse(self.answer)) as call:
+            propose_search_candidate(self.provider, self.context)
+        messages = json.loads(call.call_args.args[0].data)["messages"]
+        self.assertIn("custom-research", messages[1]["content"])
+        self.assertIn("not an allowed-model list", messages[0]["content"])
+        self.assertIn("falsification", messages[0]["content"])
+        self.assertIn("input_features", messages[0]["content"])
+
     def test_invalid_shape_is_retried_once(self):
         with patch("urllib.request.urlopen", side_effect=[FakeResponse({"operator": "other"}),
                                                           FakeResponse(self.answer)]) as call:

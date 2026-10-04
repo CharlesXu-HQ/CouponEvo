@@ -18,6 +18,8 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
         try:
             journal = json.loads(path.read_text())
             previous = journal["task"]
+            if previous.get("harness") != task.get("harness"):
+                continue
             if "final" not in journal or any(previous[key] != task[key] for key in _IDENTITY_FIELDS):
                 continue
             baseline = float(journal["baseline"]["score"])
@@ -27,6 +29,7 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                 reflection = step.get("reflection") or {}
                 lessons.append({"source_search": path.parent.name, "operator": step["operator"],
                                 "approach": (step.get("approach") or "")[:500],
+                                "research": step.get("research"),
                                 "hypothesis": step["hypothesis"][:500],
                                 "expected_result": (step.get("expected_result") or "")[:500],
                                 "status": step["status"],
