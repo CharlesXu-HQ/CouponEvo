@@ -6,6 +6,12 @@
 
 A coupon model should answer a causal question: *who will change their behavior because of an offer?* A high purchase probability alone does not answer it. CouponEvo gives an Agent a controlled loop to improve the uplift model **and** the allocation policy on a fixed randomized experiment, then checks whether the resulting policy improves the outcome under a coupon budget.
 
+## Design: an RSI-inspired loop
+
+[OpenRSI](https://github.com/FrontisAI/OpenRSI) connects executable program search, experience, and training of the improver on a path toward recursive self-improvement. CouponEvo takes the **executable search loop** into a narrower domain: an Agent edits an uplift model or coupon allocation policy, runs it against a fixed randomized task, reads independent validation feedback, and decides what to try next. Completed searches can supply experience only for that same dataset and task.
+
+The evolving artifact is the **candidate algorithm**, not the Agent. This version does not train the Agent's weights or its proposal policy, so an improving candidate score is not evidence of full RSI. Keeping the dataset, objective, budget, and evaluator outside Agent-editable code makes proposals comparable. Validation feedback drives exploration; one frozen winner reaches the independent test. The separation matters because repeated validation wins can disappear on the holdout, as the public experiment below shows.
+
 ## The experiment contract
 
 | The Agent can change | The runner keeps fixed |
@@ -70,6 +76,6 @@ The Agent provider is configurable by URL, model, and API-key environment variab
 
 ## Scope and contribution
 
-This is **Agent-directed improvement of candidate algorithms**, not training the Agent's own weights or a demonstrated full recursive self-improvement system. The current implementation supports one treatment versus control, one targeting decision, fixed CSV datasets, and offline RCT evaluation. It does not send coupons or establish production uplift.
+The current implementation supports one treatment versus control, one targeting decision, fixed CSV datasets, and offline RCT evaluation. It does not send coupons or establish production uplift.
 
 Start with the [architecture](docs/architecture.md), [dataset research](docs/research/open-uplift-datasets.md), or [contribution guide](CONTRIBUTING.md). Run tests with `uv run --frozen python -m unittest discover -s tests -v`. Code is [Apache-2.0](LICENSE); upstream datasets retain their own terms.
