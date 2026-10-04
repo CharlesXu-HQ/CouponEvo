@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .agent import propose_search_candidate, revise_candidate, revise_candidate_deepseek
+from .agent import (diagnose_search_state, propose_search_candidate, reflect_search_step,
+                    revise_candidate, revise_candidate_deepseek)
 from .analysis import analyze_reports_deepseek
 from .data import load_dataset, split_dataset
 from .evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
@@ -451,7 +452,7 @@ def main() -> None:
     parser.add_argument("--bootstrap-reps", type=int, default=0, help="paired bootstrap interval on final holdout")
     parser.add_argument("--feature-gaps", type=Path, help="existing human or Agent feature suggestions")
     parser.add_argument("--objective", help="fixed policy objective for Agent search, such as active or net_margin")
-    parser.add_argument("--max-steps", type=int, default=3, help="maximum Agent proposals in a search")
+    parser.add_argument("--max-steps", type=int, default=3, help="maximum candidate experiments in a search")
     parser.add_argument("--search-id", help="directory name for one resumable search")
     parser.add_argument("--resume", action="store_true", help="continue an existing search journal")
     parser.add_argument("--timeout-seconds", type=int, default=3600, help="per-candidate evaluation timeout")
@@ -520,6 +521,9 @@ def main() -> None:
                              initial_candidate=args.candidate, objective=args.objective,
                              max_steps=args.max_steps, search_id=args.search_id,
                              proposer=lambda context: propose_search_candidate(api_provider, context),
+                             reflector=lambda observation: reflect_search_step(api_provider, observation),
+                             diagnoser=lambda context, question: diagnose_search_state(
+                                 api_provider, context, question),
                              device=args.device, strict_data=args.strict_data,
                              resume=args.resume, timeout_seconds=args.timeout_seconds,
                              sandbox_image=args.sandbox_image,

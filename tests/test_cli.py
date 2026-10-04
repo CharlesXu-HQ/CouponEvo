@@ -565,6 +565,9 @@ class RunTests(unittest.TestCase):
                 "--agent-provider", "deepseek", "--unsafe-local-execution"]
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("couponevo.cli.propose_search_candidate", side_effect=propose), \
+                patch("couponevo.cli.reflect_search_step", return_value={
+                    "verdict": "inconclusive", "evidence": "validation only",
+                    "lesson": "Try another policy", "next_direction": "Continue"}), \
                 patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
             self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
@@ -573,6 +576,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(len(first["steps"]), 1)
         self.assertEqual(first["steps"][0]["report"]["holdout"], "validation")
         self.assertEqual(first["agent"]["model"], "deepseek-flash")
+        self.assertEqual(first["steps"][0]["reflection"]["lesson"], "Try another policy")
         self.assertNotIn("test-key", journal_path.read_text())
 
         resumed_args = args.copy()
@@ -580,11 +584,15 @@ class RunTests(unittest.TestCase):
         resumed_args.append("--resume")
         with patch.object(sys, "argv", resumed_args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("couponevo.cli.propose_search_candidate", side_effect=propose), \
+                patch("couponevo.cli.reflect_search_step", return_value={
+                    "verdict": "inconclusive", "evidence": "validation only",
+                    "lesson": "Try another policy", "next_direction": "Continue"}), \
                 patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
         self.assertEqual(len(json.loads(journal_path.read_text())["steps"]), 2)
         self.assertEqual(len(calls), 2)
         self.assertIn("analysis", calls[1]["history"][-1])
+        self.assertIn("reflection", calls[1]["history"][-1])
 
     def test_search_rejects_final_holdout(self):
         args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
@@ -602,6 +610,9 @@ class RunTests(unittest.TestCase):
                     "candidate_py": candidate.read_text() + "\n# experiment\n"}
         with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
                 patch("couponevo.cli.propose_search_candidate", return_value=proposal), \
+                patch("couponevo.cli.reflect_search_step", return_value={
+                    "verdict": "inconclusive", "evidence": "validation only",
+                    "lesson": "No clear gain", "next_direction": "Stop"}), \
                 patch("couponevo.cli.analyze_reports_deepseek", return_value={"high": {}}):
             main()
         final_args = ["couponevo", "finalize", str(self.path), "--budget-kind", "count", "--budget", "0.2",

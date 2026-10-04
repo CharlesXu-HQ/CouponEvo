@@ -174,6 +174,155 @@ class SearchTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "changed"):
             run_search(**self.kwargs, max_steps=1, proposer=propose)
 
+    def test_reflection_is_saved_and_informs_the_next_experiment(self):
+        contexts = []
+
+        def propose(context):
+            contexts.append(context)
+            if len(contexts) == 2:
+                self.assertEqual(context["history"][-1]["reflection"]["lesson"],
+                                 "The first policy selected nobody")
+            return {"action": "experiment", "operator": "draft", "parent_ids": [],
+                    "hypothesis": "A different allocation may improve activation",
+                    "expected_result": "active policy value increases versus seed",
+                    "candidate_py": self.seed.read_text() + f"\n# experiment {len(contexts)}\n"}
+
+        def reflect(observation):
+            self.assertEqual(observation["expected_result"],
+                             "active policy value increases versus seed")
+            self.assertEqual(observation["report"]["holdout"], "validation")
+            return {"verdict": "inconclusive", "evidence": "No clear paired gain",
+                    "lesson": "The first policy selected nobody", "next_direction": "Try another allocation"}
+
+        result = run_search(**self.kwargs, max_steps=2, proposer=propose, reflector=reflect)
+        self.assertEqual(len(contexts), 2)
+        self.assertTrue(all("reflection" in step for step in result["steps"]))
+        self.assertEqual(result["steps"][0]["expected_result"],
+                         "active policy value increases versus seed")
+
+    def test_agent_can_diagnose_then_stop_without_using_an_experiment_step(self):
+        contexts = []
+
+        def propose(context):
+            contexts.append(context)
+            if len(contexts) == 1:
+                return {"action": "diagnose", "question": "Why is the baseline weak?"}
+            self.assertEqual(context["diagnoses"][0]["finding"], "Few users were selected")
+            return {"action": "stop", "reason": "Current evidence does not justify GPU work"}
+
+        result = run_search(**self.kwargs, max_steps=2, proposer=propose,
+                            diagnoser=lambda context, question: {
+                                "finding": "Few users were selected", "evidence": question,
+                                "next_direction": "Stop"})
+        self.assertEqual(result["steps"], [])
+        self.assertEqual(len(result["diagnoses"]), 1)
+        self.assertEqual(result["stop"]["reason"], "Current evidence does not justify GPU work")
+        with self.assertRaisesRegex(ValueError, "stopped"):
+            run_search(**self.kwargs, max_steps=3, proposer=propose, resume=True)
+
+    def test_failed_reflection_is_retried_on_resume_before_new_proposal(self):
+        source = self.seed.read_text()
+        proposal = lambda context: {"action": "experiment", "operator": "draft", "parent_ids": [],
+                                    "hypothesis": "Test a new policy", "expected_result": "active rises",
+                                    "candidate_py": source + "\n# change\n"}
+        with self.assertRaisesRegex(RuntimeError, "reflection unavailable"):
+            run_search(**self.kwargs, max_steps=1, proposer=proposal,
+                       reflector=lambda observation: (_ for _ in ()).throw(
+                           RuntimeError("reflection unavailable")))
+        saved = json.loads((self.root / "runs/agent-search/journal.json").read_text())
+        self.assertEqual(saved["steps"][0]["status"], "evaluated")
+        self.assertNotIn("reflection", saved["steps"][0])
+
+        def unexpected(_):
+            self.fail("Resume must reflect the evaluated step, not propose again")
+
+        resumed = run_search(**self.kwargs, max_steps=1, proposer=unexpected, resume=True,
+                             reflector=lambda observation: {
+                                 "verdict": "inconclusive", "evidence": "No clear gain",
+                                 "lesson": "Try a different policy", "next_direction": "Stop"})
+        self.assertEqual(resumed["steps"][0]["reflection"]["lesson"],
+                         "Try a different policy")
+
+    def test_leakage_review_prevents_champion_promotion(self):
+        from unittest.mock import patch
+
+        proposal = lambda context: {"action": "experiment", "operator": "draft", "parent_ids": [],
+                                    "hypothesis": "Try a new feature", "expected_result": "active rises",
+                                    "candidate_py": self.seed.read_text() + "\n# feature trial\n"}
+        analysis = {"high": {"feature_leakage": {"flag": True}},
+                    "max": {"feature_leakage": {"flag": True}}}
+        with patch("couponevo.search._score", side_effect=[0.0, 1.0]):
+            result = run_search(**self.kwargs, max_steps=1, proposer=proposal,
+                                analyzer=lambda *_: analysis)
+        self.assertEqual(result["best_id"], "seed")
+        self.assertEqual(result["steps"][0]["eligibility"], "blocked_feature_leakage")
+
+    def test_latest_result_is_visible_even_when_it_is_not_a_top_candidate(self):
+        from unittest.mock import patch
+
+        contexts = []
+
+        def propose(context):
+            contexts.append(context)
+            return {"operator": "draft", "parent_ids": [], "hypothesis": "new trial",
+                    "candidate_py": self.seed.read_text() + f"\n# trial {len(contexts)}\n"}
+
+        report = {"holdout": "validation"}
+        with patch("couponevo.search._evaluate", return_value=report), \
+                patch("couponevo.search._score", side_effect=[10, 3, 2, 1, 0]):
+            run_search(**self.kwargs, max_steps=4, proposer=propose)
+        self.assertIn("step-003", contexts[3]["available"])
+        self.assertEqual(contexts[3]["available"]["step-003"]["report"], report)
+
+    def test_analysis_failure_cannot_promote_unreviewed_candidate(self):
+        from unittest.mock import patch
+
+        proposal = lambda context: {"operator": "draft", "parent_ids": [],
+                                    "hypothesis": "new trial",
+                                    "candidate_py": self.seed.read_text() + "\n# trial\n"}
+        with patch("couponevo.search._score", side_effect=[0.0, 1.0]):
+            result = run_search(**self.kwargs, max_steps=1, proposer=proposal,
+                                analyzer=lambda *_: (_ for _ in ()).throw(
+                                    RuntimeError("review unavailable")))
+        self.assertEqual(result["best_id"], "seed")
+        self.assertEqual(result["steps"][0]["eligibility"], "blocked_analysis_error")
+
+    def test_old_journal_without_diagnoses_can_resume_and_diagnose(self):
+        source = self.seed.read_text()
+        run_search(**self.kwargs, max_steps=1, proposer=lambda context: {
+            "operator": "draft", "parent_ids": [], "hypothesis": "first trial",
+            "candidate_py": source + "\n# first trial\n"})
+        path = self.root / "runs/agent-search/journal.json"
+        journal = json.loads(path.read_text())
+        del journal["diagnoses"]
+        path.write_text(json.dumps(journal))
+        calls = []
+
+        def propose(context):
+            calls.append(context)
+            return ({"action": "diagnose", "question": "Why did the first trial fail?"}
+                    if len(calls) == 1 else
+                    {"action": "stop", "reason": "No further experiment"})
+
+        result = run_search(**self.kwargs, max_steps=2, proposer=propose, resume=True,
+                            diagnoser=lambda *_: {"finding": "No gain", "evidence": "Validation",
+                                                  "next_direction": "Stop"})
+        self.assertEqual(result["diagnoses"][0]["finding"], "No gain")
+
+    def test_invalid_reflection_blocks_candidate_before_champion_selection(self):
+        from unittest.mock import patch
+
+        proposal = lambda context: {"operator": "draft", "parent_ids": [],
+                                    "hypothesis": "new trial", "expected_result": "active rises",
+                                    "candidate_py": self.seed.read_text() + "\n# trial\n"}
+        with patch("couponevo.search._score", side_effect=[0.0, 1.0]):
+            result = run_search(**self.kwargs, max_steps=1, proposer=proposal,
+                                reflector=lambda observation: {
+                                    "verdict": "invalid", "evidence": "Post-treatment feature suspected",
+                                    "lesson": "Do not use that feature", "next_direction": "Try another feature"})
+        self.assertEqual(result["best_id"], "seed")
+        self.assertEqual(result["steps"][0]["eligibility"], "blocked_reflection")
+
 
 if __name__ == "__main__":
     unittest.main()

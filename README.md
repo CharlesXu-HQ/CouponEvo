@@ -17,26 +17,29 @@ The evolving artifact is the **candidate algorithm**, not the Agent. This versio
 | The Agent can change | The runner keeps fixed |
 | --- | --- |
 | EconML `TLearner` candidate code, including its PyTorch outcome models and an optional `choose_policy` allocation function | Dataset and manifest hashes, treatment probability, train/validation/test split, objective, budget, and evaluator |
-| The next hypothesis and search move (`draft`, `improve`, `debug`, or `crossover`) based on validation feedback | Independent policy estimates, budget checks, paired comparisons, and the final holdout |
+| Read same-task experience and validation history, then choose to diagnose, run an experiment, or stop; an experiment states a hypothesis and expected result | Independent policy estimates, budget checks, paired comparisons, and the final holdout |
 | A `feature_gaps.md` note when a useful pretreatment feature is missing | The dataset itself; missing features are proposed for a future dataset version, never invented for the current experiment |
 
-Generated candidates run in an isolated Docker container. Each search retains its hypotheses, code snapshots, reports, and failure history, and can resume with the same task definition. Optional experience reuse reads **validation history only** from completed searches with the same dataset bytes, manifest, objective, budget, split seed, and evaluator. Changing the data creates a new experience scope.
+Generated candidates run in an isolated Docker container. After each experiment, the Agent compares the validation result with its expectation and records evidence, a dataset-bound lesson, and a next direction. The next decision receives that reflection, the recent candidate report, prior failures, and optional same-task experience. A diagnosis interprets existing validation evidence without running new candidate code; at most one diagnosis is allowed between experiments. The Agent may stop early. Each search retains code snapshots, reports, decisions, and failures for resumption. Optional experience reuse reads **validation history only** from finalized searches with the same dataset bytes, manifest, objective, budget, split seed, and evaluator. Changing the data creates a new experience scope. A reviewed feature-leakage flag, failed report analysis, or invalid reflection prevents a candidate from becoming the champion.
 
 The primary question is **policy value**, not just uplift ranking: the evaluator estimates incremental outcomes from randomized assignments with inverse probability weighting (IPW), compares policies on the same users, and reports paired uncertainty intervals. Qini/AUUC remain ranking diagnostics. After exploration, `finalize` freezes the validation champion and compares it with the seed policy once on the held-out test set, including a paired bootstrap interval.
 
 The paired estimator averages `(policy_new − policy_seed) × [treatment × outcome / p − control × outcome / (1 − p)]` over evaluation users, where `p` is the documented treatment probability.
 
 ```text
-fixed randomized data → Agent proposes code → sandboxed training and validation
-                      ↑                         ↓
-                      └── hypotheses and feedback ┘
-                                      ↓
-                         freeze candidate → final holdout
+fixed randomized data → Agent reads experience and validation history
+                              ↓
+                    diagnose / experiment / stop
+                              ↓
+      experiment → sandboxed training and validation → hypothesis reflection
+                              └──── next Agent decision ────┘
+                              ↓
+                    freeze candidate → final holdout
 ```
 
 ## What the public experiment showed
 
-On the [84,534-row Starbucks randomized promotion dataset](examples/README.md), a two-step DeepSeek Agent search ran EconML/PyTorch candidates on an RTX 5090. Its objective was incremental purchase conversion under an **assumed** send-cost budget.
+On the [84,534-row Starbucks randomized promotion dataset](examples/README.md), an earlier two-step DeepSeek Agent search ran EconML/PyTorch candidates on an RTX 5090. That run preceded the explicit reflection and stop actions described above. Its objective was incremental purchase conversion under an **assumed** send-cost budget.
 
 | Candidate | Validation IPW incremental conversions per eligible user |
 | --- | ---: |
