@@ -13,3 +13,6 @@ dependencies = ["numpy>=2.0", "pandas>=2.0", "torch>=2.2", "econml>=0.17,<0.18"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

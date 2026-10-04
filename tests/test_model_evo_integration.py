@@ -134,14 +134,22 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["objective"], {"name": "active", "direction": "max"})
         self.assertEqual(set(snapshot["capabilities"]),
                          {"tabular_features", "observed_outcome_labels",
-                          "assignment_or_exposure_propensity"})
+                          "assignment_or_exposure_propensity", "decision_rule_adapter"})
+        self.assertEqual(snapshot["evaluation_protocol"]["metric"], "active")
+        self.assertIn("seed=7", snapshot["evaluation_protocol"]["split"])
         self.assertEqual(before["dataset_profile"]["training_rows"], 60)
         by_id = {entry["family_id"]: entry for entry in before["applicability"]}
         self.assertEqual(by_id["feature_interactions"]["status"], "ready")
         by_method = {entry["method_id"]: entry for entry in before["method_applicability"]}
         self.assertEqual(by_method["fm"]["status"], "ready")
         self.assertEqual(by_method["din"]["status"], "needs_data")
+        self.assertEqual(by_method["dcn_v2"]["status"], "needs_data")
+        self.assertIn("typed_feature_schema", by_method["dcn_v2"]["missing_capabilities"])
         self.assertEqual(by_id["sequence_ranking"]["status"], "needs_data")
+        self.assertEqual(by_id["decision_mapping"]["status"], "ready")
+        by_check = {entry["check_id"]: entry for entry in before["decision_applicability"]}
+        self.assertEqual(by_check["prediction_to_decision"]["status"], "ready")
+        self.assertEqual(by_check["negative_sampling"]["status"], "other_stage")
         self.assertIn("families", before["catalog"])
 
         split = split_dataset(load_dataset(self.manifest), 7)

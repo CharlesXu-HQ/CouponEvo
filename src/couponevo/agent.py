@@ -155,8 +155,12 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
     )
     if (context.get("harness") or {}).get("source") == "ModelEvoHarness":
         instruction += (
-            " Use harness.catalog, including its model-specific method_cards, and harness.applicability "
-            "and harness.method_applicability as a non-exhaustive research guide. Inspect ready families "
+            " Use harness.catalog, including its method_cards, structure_patterns and decision_checks, "
+            "plus the applicability reports as a non-exhaustive research guide. Use structure patterns "
+            "to connect a measured failure signal to a controlled architecture change and rejection test. "
+            "Apply decision checks only when decision_applicability marks them ready. Preserve the "
+            "evaluation_protocol and distinguish prediction improvements from policy-rule improvements. "
+            "Inspect ready families "
             "and methods alongside research_history before choosing "
             "a direction. A ready status establishes only the listed data prerequisites, not an expected "
             "gain. Provide family_id or method_id only when the corresponding status is ready; for a "

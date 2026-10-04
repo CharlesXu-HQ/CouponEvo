@@ -147,7 +147,7 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
     package = _model_evo_package()
     catalog = package.load_catalog()
     capabilities = ["tabular_features", "observed_outcome_labels",
-                    "assignment_or_exposure_propensity"]
+                    "assignment_or_exposure_propensity", "decision_rule_adapter"]
     if len(set(dataset.outcomes) - {"coupon_cost"}) > 1:
         capabilities.append("multiple_outcomes")
     snapshot = {
@@ -157,10 +157,19 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
                                            str(seed)).encode()).hexdigest(),
         "stage": "policy", "fields": list(dataset.features), "capabilities": capabilities,
         "objective": {"name": objective, "direction": "max"},
+        "evaluation_protocol": {
+            "unit": "manifest unit_id" if dataset.has_unit_id else "source row",
+            "split": f"treatment-stratified unit 60/20/20; seed={seed}",
+            "metric": objective,
+            "candidate_universe": "send coupon or do not send under the fixed budget",
+            "label_provenance": "randomized treatment assignment and observed outcomes",
+            "feature_timing": dataset.validation["feature_timing"],
+        },
     }
     return {"source": "ModelEvoHarness", "catalog": catalog,
             "applicability": package.applicability(snapshot, catalog),
             "method_applicability": package.method_applicability(snapshot, catalog),
+            "decision_applicability": package.decision_applicability(snapshot, catalog),
             "source_commit": _model_evo_revision(package),
             "task_snapshot": snapshot, "dataset_profile": profile}
 
