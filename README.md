@@ -2,63 +2,74 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-CouponEvo is an Agent-guided offline experiment runner for cost-aware coupon targeting. The name pairs *coupon* with the evolution of candidate algorithms across experiments. For a fixed randomized dataset, the Agent proposes model or targeting-code changes, the runner evaluates them under a frozen objective and budget, and a final holdout compares the chosen candidate with the seed policy.
+**Agent-led uplift experiments for budgeted coupon targeting.**
 
-## Status
+A coupon model should answer a causal question: *who will change their behavior because of an offer?* A high purchase probability alone does not answer it. CouponEvo gives an Agent a controlled loop to improve the uplift model **and** the allocation policy on a fixed randomized experiment, then checks whether the resulting policy improves the outcome under a coupon budget.
 
-- Implemented: an EconML `TLearner` candidate with PyTorch outcome models; Agent-led `draft`, `improve`, `debug`, and `crossover` proposals; resumable search; isolated candidate execution; paired policy comparisons and bootstrap intervals.
-- Experience is tied to the dataset bytes and evaluation task. Search steps use their own validation history; optional reuse reads only finalized searches with matching dataset SHA-256, manifest, objective, budget, split seed, and evaluator version. Changed data starts a new experience scope.
-- The Agent itself is **not trained or improved** by this project. This is an iterative algorithm search loop, not a demonstrated full recursive self-improvement (RSI) system. OpenRSI's broader training loop is described in its [project README](https://github.com/FrontisAI/OpenRSI).
-- No production targeting, online coupon delivery, or business-data validation is included. The public datasets do not establish App reactivation or real coupon profit.
+## The experiment contract
 
-## Quick start
+| The Agent can change | The runner keeps fixed |
+| --- | --- |
+| EconML `TLearner` candidate code, including its PyTorch outcome models and an optional `choose_policy` allocation function | Dataset and manifest hashes, treatment probability, train/validation/test split, objective, budget, and evaluator |
+| The next hypothesis and search move (`draft`, `improve`, `debug`, or `crossover`) based on validation feedback | Independent policy estimates, budget checks, paired comparisons, and the final holdout |
+| A `feature_gaps.md` note when a useful pretreatment feature is missing | The dataset itself; missing features are proposed for a future dataset version, never invented for the current experiment |
 
-Python 3.12+, [uv](https://docs.astral.sh/uv/), and the [Starbucks randomized promotion CSV](examples/README.md) are required. Place the CSV at `data/starbucks-training.csv` as described in the dataset guide. For GPU runs, install a CUDA-capable PyTorch build and use a Linux CUDA host.
+Generated candidates run in an isolated Docker container. Each search retains its hypotheses, code snapshots, reports, and failure history, and can resume with the same task definition. Optional experience reuse reads **validation history only** from completed searches with the same dataset bytes, manifest, objective, budget, split seed, and evaluator. Changing the data creates a new experience scope.
+
+The primary question is **policy value**, not just uplift ranking: the evaluator estimates incremental outcomes from randomized assignments with inverse probability weighting (IPW), compares policies on the same users, and reports paired uncertainty intervals. Qini/AUUC remain ranking diagnostics. After exploration, `finalize` freezes the validation champion and compares it with the seed policy once on the held-out test set, including a paired bootstrap interval.
+
+The paired estimator averages `(policy_new − policy_seed) × [treatment × outcome / p − control × outcome / (1 − p)]` over evaluation users, where `p` is the documented treatment probability.
+
+```text
+fixed randomized data → Agent proposes code → sandboxed training and validation
+                      ↑                         ↓
+                      └── hypotheses and feedback ┘
+                                      ↓
+                         freeze candidate → final holdout
+```
+
+## What the public experiment showed
+
+On the [84,534-row Starbucks randomized promotion dataset](examples/README.md), a two-step DeepSeek Agent search ran EconML/PyTorch candidates on an RTX 5090. Its objective was incremental purchase conversion under an **assumed** send-cost budget.
+
+| Candidate | Validation IPW incremental conversions per eligible user |
+| --- | ---: |
+| Seed: T-learner with PyTorch ridge outcome models | 0.003312 |
+| Agent proposal: PyTorch MLP outcome models | **0.004140** |
+| Agent proposal: MLP ensemble | 0.002957 |
+
+The validation winner's **held-out paired difference from the seed** was `+0.000118` conversions per user; its 95% bootstrap interval was `[-0.001065, +0.001301]`. The interval crosses zero, so this run **does not establish an improvement**. That distinction between a promising search result and a supported final claim is central to the project. See the [full search record](docs/research/agent-search-gpu-2026-10-03.md).
+
+Starbucks has neither App reactivation labels nor actual coupon redemption cost or user-level margin. Criteo and X5 RetailHero have also been used for [GPU model checks](docs/research/gpu-validation-2026-10-03.md), not for causal policy-value claims where the published data do not support the required treatment probability.
+
+## Dataset manifest
+
+CouponEvo expects a fixed randomized dataset with one row per assignment unit (usually a user), a treatment/control assignment, a documented assignment probability, pretreatment features, and at least one measured outcome. A user ID lets the loader check for duplicate users; without one, it reports that limitation. A manifest such as [examples/starbucks.json](examples/starbucks.json) declares that contract. The evaluator rejects outcome or treatment columns used as features and can check row-level feature timestamps when provided.
+
+A count budget needs no cost label. A cost budget uses observed coupon cost or an explicitly marked fixed send-cost assumption; real net-margin claims additionally require suitable margin and cost definitions. See the [business RCT contract](docs/business-rct-contract.md) and [public dataset notes](examples/README.md). Public datasets and generated runs are not committed to this repository.
+
+## Try an Agent search
+
+Use Python 3.12+, [uv](https://docs.astral.sh/uv/), and the [Starbucks CSV](examples/README.md) at `data/starbucks-training.csv`. For the CUDA example, use a Linux GPU host with a matching PyTorch CUDA build and Docker. Set `AGENT_API_KEY` in the environment; [the example provider config](examples/agent.deepseek.json) supplies the URL and model without storing a key.
 
 ```bash
 uv sync --frozen --python 3.12
-uv run --frozen python -m couponevo.cli run examples/starbucks.json \
-  --budget-kind cost --budget 0.03 --seed 42 --device cuda
-```
-
-To let an API Agent search, set `AGENT_API_KEY` in your shell, then build and pin the sandbox image:
-
-```bash
 docker build -f Dockerfile.sandbox -t couponevo-sandbox:py312-cuda128 .
 export SANDBOX_IMAGE="$(docker image inspect couponevo-sandbox:py312-cuda128 --format '{{.Id}}')"
 uv run --frozen python -m couponevo.cli search examples/starbucks.json \
   --budget-kind cost --budget 0.03 --objective conversion --seed 42 \
   --max-steps 3 --search-id starbucks-01 --device cuda \
   --agent-config examples/agent.deepseek.json --sandbox-image "$SANDBOX_IMAGE"
-```
-
-The example config uses an OpenAI-compatible provider URL, model name, and API-key environment-variable name. It requests `high` reasoning for proposals and analysis, with `max` review when configured anomaly checks trigger. Your endpoint must support these settings. Keys are read from the environment; do not put them in tracked files.
-
-After the search, freeze its validation champion and run the independent test once:
-
-```bash
 uv run --frozen python -m couponevo.cli finalize examples/starbucks.json \
   --budget-kind cost --budget 0.03 --objective conversion --seed 42 \
   --search-id starbucks-01 --device cuda --bootstrap-reps 2000 \
   --sandbox-image "$SANDBOX_IMAGE"
 ```
 
-Reports and candidate snapshots go under `runs/`, which is ignored by Git. See the [Chinese guide](README.zh-CN.md) for data contracts, costs, feature timing, sandbox behavior, and interpretation of intervals.
+The Agent provider is configurable by URL, model, and API-key environment variable. The example requests `high` reasoning for iteration and analysis, and `max` review for flagged anomalies; the endpoint must support those settings. Search results and candidate snapshots are written under ignored `runs/`. Run `python -m couponevo.cli --help` for local baseline evaluation, resuming a search, and other options.
 
-## Repository layout
+## Scope and contribution
 
-| Path | Purpose |
-| --- | --- |
-| `src/couponevo/` | Dataset validation, candidate model, Agent, search, evaluation, sandbox, and task-bound experience |
-| `examples/` | Public-data manifests, frozen task specs, and Agent configuration; no raw data |
-| `tests/` | Unit and integration tests |
-| `docs/` | Business data contract and historical experiment records |
-| `.github/workflows/` | Continuous integration |
+This is **Agent-directed improvement of candidate algorithms**, not training the Agent's own weights or a demonstrated full recursive self-improvement system. The current implementation supports one treatment versus control, one targeting decision, fixed CSV datasets, and offline RCT evaluation. It does not send coupons or establish production uplift.
 
-## Reproduce and contribute
-
-```bash
-uv run --frozen python -m unittest discover -s tests -v
-```
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes. Project code is [Apache-2.0 licensed](LICENSE); datasets have separate terms and are not redistributed here. Historical GPU results are in [docs/research](docs/research), including a **superseded cross-dataset experience experiment**. Current experience reuse is dataset-bound.
+Start with the [architecture](docs/architecture.md), [dataset research](docs/research/open-uplift-datasets.md), or [contribution guide](CONTRIBUTING.md). Run tests with `uv run --frozen python -m unittest discover -s tests -v`. Code is [Apache-2.0](LICENSE); upstream datasets retain their own terms.
