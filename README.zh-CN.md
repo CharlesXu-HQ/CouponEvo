@@ -94,6 +94,8 @@ Agent 可通过 provider URL、模型名和密钥环境变量接入兼容服务�
 
 这些检查尚不能证明完整的特征和梯度路径，反思必须保留归因的不确定性。字段时点或成本疑问可以记录为不阻塞实验的审计建议；实验依据型特征请求则必须有跨不同机制、与具体试验绑定的实际缺失证据。预算耗尽后的提议若反复不合法，会记录错误并保留已经完成的实验结果。
 
+声称新结构增加了表达能力时，必须对照父模型的预测函数核验。[全量数据 GPU 行为核验](docs/research/harness-evidence-gpu-validation-2026-10-05.md)记录了 Agent 实际的实验顺序、失败的复核和配对置信区间；更好的验证分数仍属于探索性结果。
+
 当前支持单一干预对照、一次选人决策、固定 CSV 与离线随机实验评估；不执行线上发券，也未验证真实 App 促活效果。
 
 进一步阅读[架构说明](docs/architecture.md)、[公开数据调研](docs/research/open-uplift-datasets.md)和[贡献指南](CONTRIBUTING.md)。测试命令：`uv run --frozen python -m unittest discover -s tests -v`。代码采用 [Apache-2.0](LICENSE)；公开数据遵循各自的授权条款。
