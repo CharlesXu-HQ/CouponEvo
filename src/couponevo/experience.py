@@ -37,6 +37,8 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                                 "hypothesis": step["hypothesis"][:500],
                                 "expected_result": (step.get("expected_result") or "")[:500],
                                 "status": step["status"],
+                                "eligibility": step.get("eligibility"),
+                                "analysis_error": step.get("analysis_error"),
                                 "validation_delta": (float(step["score"]) - baseline
                                                      if step["status"] == "evaluated" else None),
                                 "verdict": reflection.get("verdict"),

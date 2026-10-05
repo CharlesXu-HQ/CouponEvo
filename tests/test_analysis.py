@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,8 +9,9 @@ from couponevo.analysis import analyze_reports_deepseek
 
 
 class FakeResponse:
-    def __init__(self, answer):
+    def __init__(self, answer, finish_reason="stop"):
         self.answer = answer
+        self.finish_reason = finish_reason
 
     def __enter__(self):
         return self
@@ -18,7 +20,7 @@ class FakeResponse:
         return False
 
     def read(self):
-        return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+        return json.dumps({"choices": [{"finish_reason": self.finish_reason, "message": {
             "content": json.dumps(self.answer)}}]}).encode()
 
 
@@ -100,6 +102,62 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(call.call_count, 2)
         self.assertEqual(result["high"]["summary"], self.high["summary"])
         self.assertIsNone(result["max"])
+
+    def test_high_length_retries_with_double_tokens_and_same_effort(self):
+        with patch("urllib.request.urlopen", side_effect=[
+                FakeResponse(self.high, "length"), FakeResponse(self.high)]) as call:
+            result = analyze_reports_deepseek(self.report, self.report,
+                                              candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        payloads = [json.loads(item.args[0].data) for item in call.call_args_list]
+        self.assertEqual([item["max_tokens"] for item in payloads], [10000, 20000])
+        self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [180, 300])
+        self.assertEqual([item["reasoning_effort"] for item in payloads], ["high", "high"])
+        self.assertEqual(result["high"]["summary"], self.high["summary"])
+
+    def test_max_length_retries_with_double_tokens_and_same_effort(self):
+        revised = json.loads(json.dumps(self.report))
+        revised["policies"]["random"]["effects"]["active"]["mean"] = 0.06
+        with patch("urllib.request.urlopen", side_effect=[
+                FakeResponse(self.high), FakeResponse(self.high, "length"),
+                FakeResponse(self.high)]) as call:
+            result = analyze_reports_deepseek(self.report, revised,
+                                              candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        payloads = [json.loads(item.args[0].data) for item in call.call_args_list]
+        self.assertEqual([item["max_tokens"] for item in payloads], [10000, 16000, 32000])
+        self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [180, 180, 300])
+        self.assertEqual([item["reasoning_effort"] for item in payloads], ["high", "max", "max"])
+        self.assertIsNotNone(result["max"])
+
+    def test_consecutive_length_stops_after_two_attempts(self):
+        with patch("urllib.request.urlopen", side_effect=[
+                FakeResponse(self.high, "length"), FakeResponse(self.high, "length")]) as call:
+            with self.assertRaises(RuntimeError) as captured:
+                analyze_reports_deepseek(self.report, self.report,
+                                         candidate_path=self.candidate,
+                                         output_dir=self.root, api_key="test-key")
+        self.assertEqual(getattr(captured.exception, "reason", None), "length")
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [10000, 20000])
+
+    def test_non_length_incomplete_response_does_not_retry(self):
+        with patch("urllib.request.urlopen", return_value=FakeResponse(self.high, "content_filter")) as call:
+            with self.assertRaises(RuntimeError) as captured:
+                analyze_reports_deepseek(self.report, self.report,
+                                         candidate_path=self.candidate,
+                                         output_dir=self.root, api_key="test-key")
+        self.assertEqual(getattr(captured.exception, "reason", None), "content_filter")
+        self.assertEqual(call.call_count, 1)
+
+    def test_http_error_does_not_retry(self):
+        error = urllib.error.HTTPError("https://example.test", 429, "Too Many Requests", {}, None)
+        with patch("urllib.request.urlopen", side_effect=error) as call:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 429"):
+                analyze_reports_deepseek(self.report, self.report,
+                                         candidate_path=self.candidate,
+                                         output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 1)
 
     def test_cost_uncertainty_triggers_max_review(self):
         revised = json.loads(json.dumps(self.report))

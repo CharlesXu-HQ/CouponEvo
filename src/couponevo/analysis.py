@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .provider import ApiProvider, request_json
+from .provider import ApiProvider, IncompleteResponseError, request_json
 
 
 FLAGS = ("uplift_anomaly", "feature_leakage", "cost_tradeoff_unclear")
@@ -13,10 +13,11 @@ FLAGS = ("uplift_anomaly", "feature_leakage", "cost_tradeoff_unclear")
 
 def _ask(provider: ApiProvider, effort: str, messages: list[dict], *,
          implementation_required: bool = False) -> dict:
+    max_tokens = 10000 if effort == "high" else 16000
     for attempt in range(2):
         try:
             answer = request_json(provider, effort, messages,
-                                  max_tokens=10000 if effort == "high" else 16000)
+                                  max_tokens=max_tokens, timeout=300 if max_tokens > 16000 else 180)
             if not isinstance(answer.get("summary"), str) or not isinstance(answer.get("recommendation"), str):
                 raise ValueError("Agent analysis needs a summary and recommendation")
             for name in FLAGS:
@@ -38,6 +39,10 @@ def _ask(provider: ApiProvider, effort: str, messages: list[dict], *,
                             for factor in check["changed_factors"])):
                     raise ValueError("implementation_check needs status, evidence and changed_factors")
             return answer
+        except IncompleteResponseError as error:
+            if error.reason != "length" or attempt:
+                raise
+            max_tokens = min(max_tokens * 2, 32768)
         except ValueError as error:
             if attempt:
                 raise

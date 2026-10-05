@@ -9,6 +9,12 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 
+class IncompleteResponseError(RuntimeError):
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(f"Agent provider response incomplete: {reason}")
+
+
 @dataclass(frozen=True)
 class ApiProvider:
     url: str
@@ -53,7 +59,7 @@ def request_json(provider: ApiProvider, effort: str, messages: list[dict], *,
         raise RuntimeError(f"Agent provider returned HTTP {error.code}; check model and reasoning effort support") from None
     choice = result["choices"][0]
     if choice["finish_reason"] != "stop":
-        raise RuntimeError(f"Agent provider response incomplete: {choice['finish_reason']}")
+        raise IncompleteResponseError(choice["finish_reason"])
     answer = json.loads(choice["message"]["content"])
     if not isinstance(answer, dict):
         raise ValueError("Agent provider must return a JSON object")

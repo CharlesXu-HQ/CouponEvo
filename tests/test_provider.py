@@ -59,6 +59,19 @@ class ProviderTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "JSON object"):
                 request_json(provider, "high", [], max_tokens=100)
 
+    def test_incomplete_response_exposes_finish_reason(self):
+        class LengthResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "length", "message": {
+                    "content": '{"partial":'}}]}).encode()
+
+        provider = ApiProvider("https://example.test", "model", "key")
+        with patch("urllib.request.urlopen", return_value=LengthResponse()):
+            with self.assertRaises(RuntimeError) as captured:
+                request_json(provider, "high", [{"role": "user", "content": "test"}], max_tokens=100)
+        self.assertEqual(type(captured.exception).__name__, "IncompleteResponseError")
+        self.assertEqual(getattr(captured.exception, "reason", None), "length")
+
 
 if __name__ == "__main__":
     unittest.main()

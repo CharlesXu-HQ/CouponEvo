@@ -320,6 +320,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                "report": unreflected.get("report"),
                                "error": unreflected.get("error"),
                                "analysis": unreflected.get("analysis"),
+                               "analysis_error": unreflected.get("analysis_error"),
                                "change_audit": unreflected.get("change_audit"),
                                "eligibility": unreflected.get("eligibility")}
                 if (journal.get("harness") or {}).get("source") == "ModelEvoHarness":
