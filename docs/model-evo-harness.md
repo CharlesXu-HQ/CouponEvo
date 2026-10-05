@@ -38,6 +38,8 @@ ModelEvo 模式把可用字段上的网络结构、损失、优化和采样实�
 
 ## GPU A/B 复现实验
 
+2026-10-05 的接入冒烟验证使用 CouponEvo `b2359aa`、ModelEvoHarness `544badf` 的源码归档，在 RTX 5090 上运行。输入为完整的 Starbucks CSV（84,534 行，不抽样）；验证集 16,907 行。候选代码在 Docker 沙箱中导入 Harness 的 PyTorch `FM` 和 `focal_loss`，执行 CUDA 前向和反向传播，再由原有 T-learner 产生策略预测。报告记录 `model_device=cuda` 和 `cuda_peak_bytes=35397120`。这只验证源码挂载、导入和 GPU 执行；FM 探针没有参与策略预测，不能据此推断算法指标提升或 Agent 已完成新一轮搜索。
+
 种子 42 的全量 Starbucks GPU 对照已执行。两组 Agent 都提出新数据需求，因此按现有规则没有运行正式 `finalize`；冻结验证集候选后的单次诊断性配对测试，其 95% 区间包含零。实验结果、源提交及产物见[报告](research/model-evo-harness-starbucks-ab-2026-10-04.md)。下面保留实验方案和复现命令。
 
 目标是比较**相同 CouponEvo 版本下**的基础 Agent 搜索与启用 ModelEvoHarness 的搜索。两组使用相同的 Starbucks CSV、manifest、初始候选、DeepSeek 配置、目标 `conversion`、每位候选用户 `0.03` 的假设成本预算、每轮最多 3 次实验、CUDA Docker 镜像。至少按种子 `42` 做一对完整数据搜索；资源允许时，可在看最终留出集结果**之前**预定增加 `43`、`44`。每对只改变 `--harness model-evo`。不传 `--experience-dir`，避免两组互相读到历史经验。Agent 可能提前停止或提交数据请求，这也是实验结果，不能补跑到预期步数后只保留有利样本。
