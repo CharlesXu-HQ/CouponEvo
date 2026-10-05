@@ -20,14 +20,18 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
             previous = journal["task"]
             if previous.get("harness") != task.get("harness"):
                 continue
-            if "final" not in journal or any(previous[key] != task[key] for key in _IDENTITY_FIELDS):
+            model_evo = isinstance(task.get("harness"), dict) and \
+                task["harness"].get("source") == "ModelEvoHarness"
+            complete = "final" in journal or (model_evo and any(
+                key in journal for key in ("stop", "data_request", "budget_exhausted_decision")))
+            if not complete or any(previous[key] != task[key] for key in _IDENTITY_FIELDS):
                 continue
             baseline = float(journal["baseline"]["score"])
             for step in reversed(journal["steps"]):
                 if step["status"] not in {"evaluated", "failed"}:
                     continue
                 reflection = step.get("reflection") or {}
-                lessons.append({"source_search": path.parent.name, "operator": step["operator"],
+                lesson = {"source_search": path.parent.name, "operator": step["operator"],
                                 "approach": (step.get("approach") or "")[:500],
                                 "research": step.get("research"),
                                 "hypothesis": step["hypothesis"][:500],
@@ -38,7 +42,22 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                                 "verdict": reflection.get("verdict"),
                                 "evidence": (reflection.get("evidence") or "")[:500],
                                 "lesson": (reflection.get("lesson") or "")[:500],
-                                "next_direction": (reflection.get("next_direction") or "")[:500]})
+                                "next_direction": (reflection.get("next_direction") or "")[:500]}
+                if model_evo:
+                    technical = reflection.get("technical_experience")
+                    business = reflection.get("business_experience")
+                    if not isinstance(technical, dict) or not isinstance(business, dict):
+                        continue
+                    lesson["source_trial"] = step["id"]
+                    lesson["technical_experience"] = {
+                        key: str(technical.get(key, ""))[:500]
+                        for key in ("lesson", "evidence", "uncertainty", "next_test")}
+                    lesson["business_experience"] = {
+                        key: str(business[key])[:500]
+                        for key in (("status", "observation_id", "insight", "limitations")
+                                    if business.get("status") == "observed" else ("status", "reason"))
+                        if key in business}
+                lessons.append(lesson)
                 if len(lessons) >= limit:
                     return lessons
         except (KeyError, ValueError, TypeError, OSError):

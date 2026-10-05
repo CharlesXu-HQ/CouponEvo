@@ -17,7 +17,24 @@ uv pip install --python .venv/bin/python -e ./third_party/model-evo-harness
 
 CouponEvo 的 Gitlink 记录 submodule 的默认提交；新搜索会把本地检出推进到最新 `main`。如需运行前查看远端版本，也可手动执行 `git submodule update --init --remote third_party/model-evo-harness`，但新搜索不依赖这一步。检查 submodule 工作区无未提交修改，确保记录的提交与运行代码一致。同一次搜索的 `search`、`--resume` 和 `finalize` 都必须带 `--harness model-evo`。`--resume` 和 `finalize` 不更新 submodule；其提交须与搜索记录相同。CouponEvo 将源码提交、包实现摘要和 catalog 摘要写入任务身份；版本变化会拒绝续跑，也不会复用旧版本经验。省略该参数就是原有搜索；`--harness harnesses/coupon-research.json` 仍使用仓库内 JSON 指南。
 
-接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验，缺少输入时提交数据请求。规范化的研究设计和外部包身份保存在 CouponEvo journal 中；候选代码不会导入 ModelEvoHarness。
+接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，模型框架是 `pytorch`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验。规范化的研究设计和外部包身份保存在 CouponEvo journal 中。Agent 上下文包含适用模型的本地 `model_api` 构造和调用签名。ModelEvo 模式允许候选代码导入 catalog 声明的 PyTorch 参考模型模块及 `models.pytorch.training`。评估器仅将 submodule 中的 PyTorch 参考源码复制到临时目录，再以只读方式挂载到 Docker，并设置 `PYTHONPATH`；候选容器看不到 Harness 的 provider、engine、TensorFlow 代码或宿主机 API 密钥。其他 Harness 模块的导入会在候选校验时被拒绝。
+
+ModelEvo 模式把可用字段上的网络结构、损失、优化和采样实验放在缺失特征请求之前。实验依据型请求必须引用至少两个已评估且机制不同的试验 ID。若业务专家已能直接确认必要输入缺失，可在 manifest 中显式声明领域要求，允许 Agent 立即请求相应字段：
+
+```json
+{
+  "domain_requirements": [
+    {
+      "id": "coupon-history",
+      "source": "coupon operations owner",
+      "fields": ["prior_coupon_use"],
+      "as_of": "before treatment assignment"
+    }
+  ]
+}
+```
+
+`feature_request` 保留字段名称、定义、来源、时点、证据和新数据集验证计划，并须设置 `basis=experimental_evidence` 与 `trial_ids`，或 `basis=domain_requirement` 与 `requirement_id`。实验提议若附带 `feature_gaps_md`，也必须附带符合相同规则的结构化 `feature_request`；自由文本不能绕过证据要求。领域要求只从 manifest 进入任务快照；Agent 不能自行补写。每轮反思分别保存技术经验与业务经验；后者只能引用验证集报告中的策略级指标 ID，缺乏可观察证据时记录 `not_observable`。相同数据集和实验任务可复用这两类经验，最终留出集结果不进入 Agent 上下文。
 
 ## GPU A/B 复现实验
 

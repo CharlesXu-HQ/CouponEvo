@@ -219,12 +219,15 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
                    feature_gaps: Path | None = None, agent_info: dict | None = None,
                    device: str = "cpu", compare_candidate_path: Path | None = None,
                    strict_data: bool = False, bootstrap_reps: int = 0,
-                   sandbox_image: str | None = None, timeout_seconds: int = 3600) -> dict:
+                   sandbox_image: str | None = None, timeout_seconds: int = 3600,
+                   harness_path: Path | None = None) -> dict:
     if bootstrap_reps and (not final or bootstrap_reps < 2):
         raise ValueError("bootstrap intervals require --final and at least two resamples")
     manifest_path, output = Path(manifest_path), Path(output)
     candidate_path = Path(candidate_path or Path(__file__).with_name("candidate.py"))
-    sandbox = DockerSandbox(sandbox_image, timeout_seconds=timeout_seconds) if sandbox_image else None
+    sandbox = (DockerSandbox(sandbox_image, timeout_seconds=timeout_seconds,
+                             model_evo=harness_path == Path("model-evo"))
+               if sandbox_image else None)
     manifest_bytes, candidate_bytes = manifest_path.read_bytes(), candidate_path.read_bytes()
     compare_candidate_path = Path(compare_candidate_path) if compare_candidate_path else None
     compare_bytes = compare_candidate_path.read_bytes() if compare_candidate_path else None
@@ -461,15 +464,16 @@ def main() -> None:
     parser.add_argument("--experience-dir", type=Path,
                         help="completed search journals for the same dataset and evaluation task")
     parser.add_argument("--harness", type=Path,
-                        help="research harness JSON path or model-evo for search/finalize")
+                        help="research harness JSON path for search/finalize, or model-evo for search/finalize/run")
     parser.add_argument("--agent-provider", choices=["codex", "deepseek", "api"], default="codex")
     parser.add_argument("--agent-config", type=Path, help="JSON configuration for an OpenAI-compatible API provider")
     parser.add_argument("--agent-provider-url", help="API base URL or full chat/completions endpoint")
     parser.add_argument("--agent-api-key-env", help="environment variable holding the API key")
     parser.add_argument("--agent-model", help="Agent model override; DeepSeek defaults to deepseek-flash")
     args = parser.parse_args()
-    if args.harness and args.command not in {"search", "finalize"}:
-        parser.error("--harness is supported by search and finalize")
+    if args.harness and args.command not in {"search", "finalize"} and not (
+            args.command == "run" and args.harness == Path("model-evo")):
+        parser.error("--harness is supported by search/finalize, or run with model-evo")
     if args.command in {"agent", "search"} and args.final:
         parser.error("agent revisions and search must use validation; run --final separately after selection")
     if args.command in {"search", "finalize"} and (not args.objective or not args.search_id):
@@ -575,7 +579,8 @@ def main() -> None:
                                 bootstrap_reps=args.bootstrap_reps,
                                 compare_candidate_path=(args.output / prior["run_id"] / "candidate.py"
                                                         if args.command == "agent" else args.compare_candidate),
-                                sandbox_image=args.sandbox_image, timeout_seconds=args.timeout_seconds)
+                                sandbox_image=args.sandbox_image, timeout_seconds=args.timeout_seconds,
+                                harness_path=args.harness)
         if (args.command == "agent" and prior["prediction_sha256"] == report["prediction_sha256"] and
                 prior["policy_sha256"] == report["policy_sha256"]):
             raise ValueError("Agent revision left predictions and policies unchanged")

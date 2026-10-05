@@ -13,8 +13,13 @@ import numpy as np
 import pandas as pd
 
 
+def _model_evo_models_dir() -> Path:
+    return (Path(__file__).resolve().parents[2] / "third_party/model-evo-harness/src/"
+            "model_evo_harness/models/pytorch")
+
+
 class DockerSandbox:
-    def __init__(self, image: str, *, timeout_seconds: int = 3600):
+    def __init__(self, image: str, *, timeout_seconds: int = 3600, model_evo: bool = False):
         if not image or timeout_seconds < 1:
             raise ValueError("sandbox image and positive timeout are required")
         self.image = image
@@ -23,6 +28,11 @@ class DockerSandbox:
         self.venv = Path(os.environ.get("COUPONEVO_SANDBOX_VENV", os.sys.prefix)).resolve()
         if not (self.venv / "bin/python").exists():
             raise ValueError("sandbox requires a Linux Python 3.12 virtual environment")
+        self.reference_models = _model_evo_models_dir() if model_evo else None
+        if self.reference_models is not None and (not (self.reference_models / "__init__.py").is_file() or
+                                                  not any(path.name != "__init__.py"
+                                                          for path in self.reference_models.glob("*.py"))):
+            raise ValueError("ModelEvoHarness PyTorch reference models are missing from the submodule checkout")
 
     def _run(self, candidate: Path, job: dict, frames: dict[str, pd.DataFrame] | None = None) -> tuple[dict, str]:
         with tempfile.TemporaryDirectory(prefix="couponevo-sandbox-") as scratch:
@@ -35,6 +45,20 @@ class DockerSandbox:
             for name, frame in (frames or {}).items():
                 (input_dir / f"{name}.json").write_text(frame.to_json(orient="table", double_precision=15))
             cidfile = root / "container.id"
+            reference_mount = []
+            python_path = "/opt/coupon-src"
+            if self.reference_models is not None:
+                staged = root / "model-evo-src/model_evo_harness/models/pytorch"
+                staged.mkdir(parents=True)
+                (staged.parent / "__init__.py").write_text("")
+                (staged.parent.parent / "__init__.py").write_text("")
+                for source in self.reference_models.glob("*.py"):
+                    if source.is_symlink():
+                        raise ValueError("ModelEvoHarness reference model files must not be symlinks")
+                    shutil.copy2(source, staged / source.name)
+                reference_mount = ["--mount", f"type=bind,src={root / 'model-evo-src'},"
+                                   "dst=/opt/model-evo-src,readonly"]
+                python_path += ":/opt/model-evo-src"
             command = ["docker", "run", "--rm", "--cidfile", str(cidfile),
                        "--network", "none", "--read-only", "--cap-drop", "ALL",
                        "--security-opt", "no-new-privileges", "--pids-limit", "256",
@@ -43,8 +67,9 @@ class DockerSandbox:
                        "--mount", f"type=bind,src={input_dir},dst=/input,readonly",
                        "--mount", f"type=bind,src={output_dir},dst=/output",
                        "--mount", f"type=bind,src={self.source},dst=/opt/coupon-src,readonly",
+                       *reference_mount,
                        "--mount", f"type=bind,src={self.venv},dst=/opt/venv,readonly",
-                       "--env", "PYTHONPATH=/opt/coupon-src", "--env", "PYTHONDONTWRITEBYTECODE=1",
+                       "--env", f"PYTHONPATH={python_path}", "--env", "PYTHONDONTWRITEBYTECODE=1",
                        self.image, "/opt/venv/bin/python", "-m", "couponevo.sandbox_worker",
                        "/input", "/output"]
             if job.get("device") == "cuda":

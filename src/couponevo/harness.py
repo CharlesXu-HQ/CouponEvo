@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -155,7 +156,8 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
         "dataset_digest": hashlib.sha256((dataset.source_sha256 +
                                            hashlib.sha256(Path(manifest).read_bytes()).hexdigest() +
                                            str(seed)).encode()).hexdigest(),
-        "stage": "policy", "fields": list(dataset.features), "capabilities": capabilities,
+        "stage": "policy", "framework": "pytorch", "fields": list(dataset.features),
+        "capabilities": capabilities,
         "objective": {"name": objective, "direction": "max"},
         "evaluation_protocol": {
             "unit": "manifest unit_id" if dataset.has_unit_id else "source row",
@@ -166,12 +168,130 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
             "feature_timing": dataset.validation["feature_timing"],
         },
     }
-    return {"source": "ModelEvoHarness", "catalog": catalog,
-            "applicability": package.applicability(snapshot, catalog),
-            "method_applicability": package.method_applicability(snapshot, catalog),
+    requirements = dataset.manifest.get("domain_requirements", [])
+    if not isinstance(requirements, list) or any(
+            not isinstance(item, dict) or
+            any(not isinstance(item.get(key), str) or not item[key].strip()
+                for key in ("id", "source", "as_of")) or
+            not isinstance(item.get("fields"), list) or not item["fields"] or
+            any(not isinstance(field, str) or not field.strip() for field in item["fields"])
+            for item in requirements) or len({item["id"] for item in requirements}) != len(requirements):
+        raise ValueError("domain_requirements need unique id, source, fields, and as_of")
+    snapshot["domain_requirements"] = requirements
+    applicable = package.applicability(snapshot, catalog)
+    methods = package.method_applicability(snapshot, catalog)
+    context = {"source": "ModelEvoHarness", "catalog": catalog,
+            "applicability": applicable,
+            "method_applicability": methods,
             "decision_applicability": package.decision_applicability(snapshot, catalog),
             "source_commit": _model_evo_revision(package),
             "task_snapshot": snapshot, "dataset_profile": profile}
+    training_applicability = getattr(package, "training_applicability", None)
+    if callable(training_applicability):
+        context["training_applicability"] = training_applicability(snapshot, catalog)
+    model_api = getattr(package, "model_api", None)
+    if callable(model_api):
+        context["model_api"] = {"pytorch": model_api(
+            catalog, framework="pytorch",
+            method_ids={item["method_id"] for item in methods if item["status"] == "ready"})}
+    load_guide = getattr(package, "load_guide", None)
+    if callable(load_guide):
+        context["knowledge"] = {item["family_id"]: load_guide(item["family_id"])
+                                for item in applicable if item["status"] == "ready"}
+    return context
+
+
+def validate_model_evo_data_request(request: dict, snapshot: dict,
+                                    steps: list[dict]) -> dict:
+    fields = ("name", "definition", "source", "as_of", "evidence", "validation_plan")
+    if not isinstance(request, dict) or any(
+            not isinstance(request.get(key), str) or not request[key].strip() for key in fields):
+        raise ValueError("feature_request needs name, definition, source, as_of, evidence, and validation_plan")
+    result = {key: request[key].strip() for key in fields}
+    basis = request.get("basis")
+    if basis == "experimental_evidence":
+        ids = request.get("trial_ids")
+        if not isinstance(ids, list) or len(ids) < 2 or any(
+                not isinstance(trial_id, str) or not trial_id.strip() for trial_id in ids) or \
+                len(set(ids)) != len(ids):
+            raise ValueError("experimental_evidence needs at least two distinct trial_ids")
+        evaluated = {step["id"]: step for step in steps
+                     if step.get("status") == "evaluated" and isinstance(step.get("id"), str)}
+        mechanisms = [evaluated.get(trial_id, {}).get("research", {}).get("mechanism")
+                      for trial_id in ids]
+        if any(not isinstance(mechanism, str) or not mechanism.strip()
+               for mechanism in mechanisms) or len({mechanism.strip().casefold()
+                                                     for mechanism in mechanisms}) < 2:
+            raise ValueError("trial_ids must cite evaluated trials with distinct mechanisms")
+        result.update(basis=basis, trial_ids=ids)
+    elif basis == "domain_requirement":
+        requirement_id = request.get("requirement_id")
+        requirements = {item["id"]: item for item in snapshot.get("domain_requirements", [])}
+        if (not isinstance(requirement_id, str) or requirement_id not in requirements or
+                result["name"] not in requirements[requirement_id]["fields"]):
+            raise ValueError("requirement_id must match a domain requirement for the requested field")
+        result.update(basis=basis, requirement_id=requirement_id)
+    else:
+        raise ValueError("feature_request.basis must be experimental_evidence or domain_requirement")
+    return result
+
+
+def validation_business_observations(report: dict | None) -> list[dict]:
+    """Expose only evaluator-computed policy aggregates from validation."""
+    if not isinstance(report, dict) or report.get("holdout") != "validation":
+        return []
+    observations = []
+
+    def add(identifier: str, policy: str, metric: str, kind: str, estimate: dict):
+        if not isinstance(estimate, dict) or not isinstance(estimate.get("mean"), (int, float)) or \
+                not math.isfinite(estimate["mean"]):
+            return
+        item = {"id": identifier, "holdout": "validation", "policy": policy,
+                "metric": metric, "kind": kind, "mean": float(estimate["mean"])}
+        for key in ("lower", "upper", "se"):
+            value = estimate.get(key)
+            if isinstance(value, (int, float)) and math.isfinite(value):
+                item[key] = float(value)
+        observations.append(item)
+
+    for policy, metrics in (report.get("policies") or {}).items():
+        for outcome, estimate in (metrics.get("effects") or {}).items():
+            add(f"policy:{policy}:effect:{outcome}", policy, outcome, "policy_effect", estimate)
+        if "net" in metrics:
+            add(f"policy:{policy}:net", policy, "net", "policy_net", metrics["net"])
+        if "cost" in metrics:
+            add(f"policy:{policy}:cost", policy, "coupon_cost", "policy_cost",
+                metrics["cost"])
+    for comparison in ("paired_vs_baseline", "paired_vs_random"):
+        for policy, metrics in (report.get(comparison) or {}).items():
+            for metric, estimate in metrics.items():
+                add(f"{comparison}:{policy}:{metric}", policy, metric, comparison, estimate)
+    return observations
+
+
+def validate_model_evo_reflection(reflection: dict, observation: dict) -> dict:
+    technical = reflection.get("technical_experience")
+    if not isinstance(technical, dict) or any(
+            not isinstance(technical.get(key), str) or not technical[key].strip()
+            for key in ("lesson", "evidence", "uncertainty", "next_test")):
+        raise ValueError("technical_experience needs lesson, evidence, uncertainty, and next_test")
+    business = reflection.get("business_experience")
+    if not isinstance(business, dict):
+        raise ValueError("business_experience must be an object")
+    if business.get("status") == "observed":
+        valid_ids = {item["id"] for item in observation.get("business_observations", [])}
+        if (observation.get("status") != "evaluated" or
+                observation.get("eligibility") == "blocked_feature_leakage" or
+                business.get("observation_id") not in valid_ids or
+                any(not isinstance(business.get(key), str) or not business[key].strip()
+                    for key in ("insight", "limitations"))):
+            raise ValueError("business_experience.observation_id must cite a validation policy observation")
+    elif business.get("status") == "not_observable":
+        if not isinstance(business.get("reason"), str) or not business["reason"].strip():
+            raise ValueError("business_experience.not_observable needs reason")
+    else:
+        raise ValueError("business_experience.status must be observed or not_observable")
+    return reflection
 
 
 def validate_research(proposal: dict, harness: dict) -> dict:

@@ -56,7 +56,7 @@ class RunTests(unittest.TestCase):
 
         class FakeSandbox:
             def __init__(self, *_args, **_kwargs):
-                pass
+                seen["model_evo"] = _kwargs.get("model_evo")
 
             def predict(self, _candidate, train, target, _args, _seed, _device):
                 seen["train"] = train
@@ -72,11 +72,21 @@ class RunTests(unittest.TestCase):
 
         with patch("couponevo.cli.DockerSandbox", FakeSandbox):
             run_experiment(self.path, Budget("count", 0.2), seed=7,
-                           output=self.root / "runs", sandbox_image="test-image")
+                           output=self.root / "runs", sandbox_image="test-image",
+                           harness_path=Path("model-evo"))
+        self.assertTrue(seen["model_evo"])
         self.assertEqual(list(seen["train"]), ["x", "__treatment", "active", "margin", "cost"])
         self.assertEqual(list(seen["target"]), ["x"])
         self.assertEqual(seen["train"].index.tolist(), list(range(len(seen["train"]))))
         self.assertEqual(seen["target"].index.tolist(), list(range(len(seen["target"]))))
+
+    def test_direct_run_accepts_model_evo_mode_for_sandbox_reference_models(self):
+        arguments = ["couponevo", "run", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                     "--harness", "model-evo", "--sandbox-image", "test-image"]
+        with patch.object(sys, "argv", arguments), \
+                patch("couponevo.cli.run_experiment", return_value={"run_id": "test"}) as run:
+            main()
+        self.assertEqual(run.call_args.kwargs["harness_path"], Path("model-evo"))
 
     def test_cuda_sandbox_requires_measured_gpu_allocation(self):
         class FakeSandbox:

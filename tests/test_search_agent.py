@@ -99,6 +99,41 @@ class SearchAgentTests(unittest.TestCase):
             self.assertEqual(propose_search_candidate(self.provider, self.context), complete)
         self.assertEqual(call.call_count, 2)
 
+    def test_model_evo_rejects_experimental_feature_request_without_completed_trials(self):
+        self.context["harness"] = {"source": "ModelEvoHarness",
+                                   "task_snapshot": {"fields": ["x"], "domain_requirements": []}}
+        request = {"action": "request_data", "reason": "Need coupon recency",
+                   "feature_request": {"name": "prior_coupon_use", "definition": "Past use count",
+                                       "source": "coupon log", "as_of": "before assignment",
+                                       "evidence": "One weak model", "validation_plan": "Check cutoff",
+                                       "basis": "experimental_evidence", "trial_ids": ["step-001"]}}
+        corrected = {"action": "stop", "reason": "More model-side tests are needed"}
+        with patch("urllib.request.urlopen", side_effect=[FakeResponse(request),
+                                                          FakeResponse(corrected)]) as call:
+            self.assertEqual(propose_search_candidate(self.provider, self.context), corrected)
+        self.assertEqual(call.call_count, 2)
+
+    def test_model_evo_reflection_rejects_unlisted_business_observation(self):
+        observation = {"harness_source": "ModelEvoHarness", "status": "evaluated",
+                       "business_observations": [{"id": "policy:active:effect:active",
+                                                  "holdout": "validation", "metric": "active",
+                                                  "mean": 0.03}]}
+        base = {"verdict": "inconclusive", "evidence": "Validation is exploratory",
+                "lesson": "Test further", "next_direction": "Compare losses",
+                "technical_experience": {"lesson": "Interaction is uncertain",
+                                         "evidence": "Validation interval overlaps zero",
+                                         "uncertainty": "One split", "next_test": "Test weighting"}}
+        invented = {**base, "business_experience": {"status": "observed",
+                                                  "observation_id": "cohort:high_spend",
+                                                  "insight": "High spenders prefer coupons",
+                                                  "limitations": "Validation only"}}
+        corrected = {**base, "business_experience": {"status": "not_observable",
+                                                   "reason": "No supported segment statistic"}}
+        with patch("urllib.request.urlopen", side_effect=[FakeResponse(invented),
+                                                          FakeResponse(corrected)]) as call:
+            self.assertEqual(reflect_search_step(self.provider, observation), corrected)
+        self.assertEqual(call.call_count, 2)
+
     def test_experiment_action_may_be_omitted(self):
         answer = {key: value for key, value in self.answer.items() if key != "action"}
         with patch("urllib.request.urlopen", return_value=FakeResponse(answer)):

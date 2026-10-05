@@ -15,7 +15,9 @@ from .data import load_dataset
 from .evaluate import Budget
 from .experience import load_experience
 from .harness import (build_harness_context, harness_identity, refresh_model_evo,
-                      research_history, validate_research)
+                      research_history, validate_model_evo_data_request,
+                      validate_model_evo_reflection, validate_research,
+                      validation_business_observations)
 
 
 def _sha(data: bytes) -> str:
@@ -47,7 +49,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
               device: str, strict_data: bool, timeout_seconds: int,
               compare_candidate: Path | None = None, feature_gaps: Path | None = None,
               final: bool = False, bootstrap_reps: int = 0,
-              sandbox_image: str | None = None) -> dict:
+              sandbox_image: str | None = None, harness_path: Path | None = None) -> dict:
     command = [sys.executable, "-m", "couponevo.cli", "run", str(manifest),
                "--budget-kind", budget.kind, "--budget", str(budget.value),
                "--seed", str(seed), "--output", str(output),
@@ -56,6 +58,8 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
         command.append("--strict-data")
     if sandbox_image:
         command.extend(["--sandbox-image", sandbox_image, "--timeout-seconds", str(timeout_seconds)])
+    if harness_path == Path("model-evo"):
+        command.extend(["--harness", "model-evo"])
     if compare_candidate is not None:
         command.extend(["--compare-candidate", str(compare_candidate)])
     if feature_gaps is not None:
@@ -83,6 +87,7 @@ def _context(journal: dict, root: Path) -> dict:
     history.extend({key: step.get(key) for key in ("id", "status", "operator", "parent_ids",
                                                    "hypothesis", "approach", "research", "expected_result", "score", "error",
                                                    "analysis", "analysis_error", "reflection",
+                                                   "business_observations", "feature_request",
                                                    "eligibility") if key in step}
                    for step in journal["steps"])
     successful = sorted((step for step in journal["steps"] if step["status"] == "evaluated"),
@@ -116,7 +121,8 @@ def _context(journal: dict, root: Path) -> dict:
                 for item in journal.get("diagnoses", []))}
 
 
-def _validate_proposal(proposal: dict, available: dict) -> dict:
+def _validate_proposal(proposal: dict, available: dict, harness: dict | None = None,
+                       steps: list[dict] | None = None) -> dict:
     if not isinstance(proposal, dict):
         raise ValueError("Agent proposal must be an object")
     action = proposal.get("action", "experiment")
@@ -130,8 +136,13 @@ def _validate_proposal(proposal: dict, available: dict) -> dict:
                     for key in fields)):
             raise ValueError("Agent request_data needs reason and feature_request with name, "
                              "definition, source, as_of, evidence, and validation_plan")
+        if harness and harness.get("source") == "ModelEvoHarness":
+            canonical_request = validate_model_evo_data_request(
+                request, harness["task_snapshot"], steps or [])
+        else:
+            canonical_request = {key: request[key].strip() for key in fields}
         return {"action": "request_data", "reason": reason.strip(),
-                "feature_request": {key: request[key].strip() for key in fields}}
+                "feature_request": canonical_request}
     if action in {"stop", "diagnose"}:
         field = "reason" if action == "stop" else "question"
         value = proposal.get(field)
@@ -160,10 +171,21 @@ def _validate_proposal(proposal: dict, available: dict) -> dict:
         raise ValueError("Agent proposal needs candidate_py, hypothesis, expected_result, and optional feature_gaps_md")
     tree = ast.parse(source)
     allowed = {"__future__", "numpy", "pandas", "torch", "econml", "sklearn"}
+    references = set()
+    if harness and harness.get("source") == "ModelEvoHarness":
+        references.add("model_evo_harness.models.pytorch.training")
+        references.update(symbol.split(":", 1)[0] for item in
+                          harness.get("catalog", {}).get("model_implementations", [])
+                          if item.get("framework") == "pytorch"
+                          for symbol in [item.get("symbol", "")]
+                          if symbol.startswith("model_evo_harness.models.pytorch.") and
+                          symbol.count(".") == 3)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import) and any(alias.name.split(".")[0] not in allowed for alias in node.names):
+        if isinstance(node, ast.Import) and any(alias.name.split(".")[0] not in allowed and
+                                                alias.name not in references for alias in node.names):
             raise ValueError("Agent candidate imports an unsupported module")
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] not in allowed:
+        if isinstance(node, ast.ImportFrom) and (node.level or
+                ((node.module or "").split(".")[0] not in allowed and node.module not in references)):
             raise ValueError("Agent candidate imports an unsupported module")
     if not any(isinstance(node, ast.FunctionDef) and node.name == "fit_predict" for node in tree.body):
         raise ValueError("Agent candidate is missing fit_predict")
@@ -172,6 +194,9 @@ def _validate_proposal(proposal: dict, available: dict) -> dict:
     validated = {"action": "experiment", "operator": operator, "parent_ids": parents,
                  "hypothesis": hypothesis.strip(), "expected_result": expected.strip(),
                  "candidate_py": source.rstrip() + "\n", "feature_gaps_md": gaps.strip()}
+    if harness and harness.get("source") == "ModelEvoHarness" and gaps.strip():
+        validated["feature_request"] = validate_model_evo_data_request(
+            proposal.get("feature_request"), harness["task_snapshot"], steps or [])
     if approach is not None:
         validated["approach"] = approach.strip()
     return validated
@@ -244,7 +269,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
         seed_candidate.write_bytes(initial_candidate.read_bytes())
         seed_sha = _sha(seed_candidate.read_bytes())
         report = _evaluate(manifest_path, budget, seed, root / "runs", seed_candidate,
-                           device, strict_data, timeout_seconds, sandbox_image=sandbox_image)
+                           device, strict_data, timeout_seconds, sandbox_image=sandbox_image,
+                           harness_path=harness_path)
         if _sha(seed_candidate.read_bytes()) != seed_sha:
             raise ValueError("candidate snapshot changed: seed")
         score = _score(report, objective)
@@ -282,6 +308,10 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                "error": unreflected.get("error"),
                                "analysis": unreflected.get("analysis"),
                                "eligibility": unreflected.get("eligibility")}
+                if (journal.get("harness") or {}).get("source") == "ModelEvoHarness":
+                    observation["harness_source"] = "ModelEvoHarness"
+                    observation["business_observations"] = unreflected.get(
+                        "business_observations", [])
                 try:
                     reflection = reflector(observation)
                     if (not isinstance(reflection, dict) or
@@ -291,8 +321,13 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                 not reflection[key].strip() for key in
                                 ("evidence", "lesson", "next_direction"))):
                         raise ValueError("Agent reflection needs verdict, evidence, lesson, and next_direction")
+                    if observation.get("harness_source") == "ModelEvoHarness":
+                        validate_model_evo_reflection(reflection, observation)
                     unreflected["reflection"] = {key: reflection[key] for key in
                                                  ("verdict", "evidence", "lesson", "next_direction")}
+                    if observation.get("harness_source") == "ModelEvoHarness":
+                        unreflected["reflection"]["technical_experience"] = reflection["technical_experience"]
+                        unreflected["reflection"]["business_experience"] = reflection["business_experience"]
                     unreflected.pop("reflection_error", None)
                     if unreflected.get("eligibility") == "pending_reflection":
                         if reflection["verdict"] == "invalid":
@@ -321,7 +356,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             for attempt in range(2):
                 try:
                     raw = proposer(context)
-                    proposal = _validate_proposal(raw, context["available"])
+                    proposal = _validate_proposal(raw, context["available"],
+                                                  journal.get("harness"), journal["steps"])
                     if journal.get("harness") and proposal["action"] == "experiment" and not exhausted:
                         proposal["research"] = validate_research(raw, journal["harness"])
                     if exhausted and proposal["action"] not in ("stop", "request_data"):
@@ -386,6 +422,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                 pending["approach"] = proposal["approach"]
             if "research" in proposal:
                 pending["research"] = proposal["research"]
+            if "feature_request" in proposal:
+                pending["feature_request"] = proposal["feature_request"]
             journal["steps"].append(pending)
             _save(journal_path, journal)
         if _task(manifest_path, budget, seed, initial_candidate, objective, device,
@@ -403,10 +441,12 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             report = _evaluate(manifest_path, budget, seed, root / "runs", candidate,
                                device, strict_data, timeout_seconds, root / parent["candidate"],
                                gap_path if gap_path.exists() else None,
-                               sandbox_image=sandbox_image)
+                               sandbox_image=sandbox_image, harness_path=harness_path)
             _verify_candidates(journal, root)
             pending["score"] = _score(report, objective)
             pending["report"] = report
+            if (journal.get("harness") or {}).get("source") == "ModelEvoHarness":
+                pending["business_observations"] = validation_business_observations(report)
             pending["status"] = "evaluated"
             _save(journal_path, journal)
         except Exception as error:
@@ -473,7 +513,7 @@ def finalize_search(manifest_path: Path, budget: Budget, *, seed: int, output: P
                        device, strict_data, timeout_seconds,
                        compare_candidate=root / journal["baseline"]["candidate"],
                        final=True, bootstrap_reps=bootstrap_reps,
-                       sandbox_image=sandbox_image)
+                       sandbox_image=sandbox_image, harness_path=harness_path)
     journal["final"] = {"candidate_id": champion["id"], "report": report}
     _save(journal_path, journal)
     return report
