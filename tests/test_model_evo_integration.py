@@ -257,12 +257,42 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                        "fields": ["prior_coupon_use"], "as_of": "before assignment"}
         self.spec["domain_requirements"] = [requirement]
         self.manifest.write_text(json.dumps(self.spec))
-        direct = {**common, "basis": "domain_requirement", "requirement_id": "recency"}
+        direct = {**common, "source": requirement["source"],
+                  "basis": "domain_requirement", "requirement_id": "recency"}
         self.assertEqual(validate_model_evo_data_request(direct,
                          self.context()["task_snapshot"], []), direct)
         with self.assertRaisesRegex(ValueError, "requirement_id"):
             validate_model_evo_data_request({**direct, "requirement_id": "invented"},
                                              self.context()["task_snapshot"], [])
+
+    def test_model_evo_data_request_rejects_existing_field_and_mismatched_domain_provenance(self):
+        requirement = {"id": "recency", "source": "coupon operations owner",
+                       "fields": ["prior_coupon_use"], "as_of": "before assignment"}
+        self.spec["domain_requirements"] = [requirement]
+        self.manifest.write_text(json.dumps(self.spec))
+        snapshot = self.context()["task_snapshot"]
+        request = {"name": "prior_coupon_use", "definition": "Prior coupon redemption count",
+                   "source": requirement["source"], "as_of": requirement["as_of"],
+                   "evidence": "Explicit business requirement",
+                   "validation_plan": "Check cutoff and coverage",
+                   "basis": "domain_requirement", "requirement_id": requirement["id"]}
+        validate = harness_module.validate_model_evo_data_request
+        for key, value in (("source", "an unrelated table"),
+                           ("as_of", "after assignment")):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "domain requirement"):
+                validate({**request, key: value}, snapshot, [])
+        present = {**request, "name": "x"}
+        snapshot["domain_requirements"][0]["fields"].append("x")
+        with self.assertRaisesRegex(ValueError, "absent"):
+            validate(present, snapshot, [])
+        experimental = {**present, "basis": "experimental_evidence",
+                        "trial_ids": ["step-001", "step-002"]}
+        trials = [{"id": "step-001", "status": "evaluated",
+                   "research": {"mechanism": "FM cross"}},
+                  {"id": "step-002", "status": "evaluated",
+                   "research": {"mechanism": "weighted loss"}}]
+        with self.assertRaisesRegex(ValueError, "absent"):
+            validate(experimental, snapshot, trials)
 
     def test_experiment_feature_gap_note_requires_a_validated_data_request(self):
         attempts = []
@@ -287,7 +317,7 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         self.spec["domain_requirements"] = [requirement]
         self.manifest.write_text(json.dumps(self.spec))
         request = {"name": "prior_coupon_use", "definition": "Prior coupon redemption count",
-                   "source": "coupon event log", "as_of": "before assignment",
+                   "source": requirement["source"], "as_of": "before assignment",
                    "evidence": "Explicit business requirement",
                    "validation_plan": "Check cutoff and coverage",
                    "basis": "domain_requirement", "requirement_id": "recency"}

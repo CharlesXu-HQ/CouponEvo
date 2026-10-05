@@ -217,9 +217,25 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
         )
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)}]
+    harness = context.get("harness") or {}
+    package = None
+    if harness.get("source") == "ModelEvoHarness" and "catalog" in harness:
+        from .harness import _model_evo_package
+        package = _model_evo_package()
+        messages[0]["content"] += "\n" + package.REFERENCE_INSTRUCTIONS
+
+    def complete(current):
+        current_messages = [dict(message) for message in messages]
+        current_messages[1]["content"] = json.dumps(current, ensure_ascii=False)
+        return request_json(provider, provider.iteration_effort, current_messages, max_tokens=32768)
+
+    read_state = {}
     for attempt in range(2):
         try:
-            proposal = request_json(provider, provider.iteration_effort, messages, max_tokens=32768)
+            proposal = (package.propose_with_references(
+                complete, context, catalog=harness["catalog"], framework="pytorch",
+                read_state=read_state)
+                if package is not None else complete(context))
             if not isinstance(proposal, dict):
                 raise ValueError("proposal must be a JSON object")
             action = proposal.get("action", "experiment")

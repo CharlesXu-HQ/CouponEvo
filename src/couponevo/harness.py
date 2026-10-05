@@ -198,6 +198,9 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
     if callable(load_guide):
         context["knowledge"] = {item["family_id"]: load_guide(item["family_id"])
                                 for item in applicable if item["status"] == "ready"}
+    common_knowledge = getattr(package, "common_knowledge", None)
+    if callable(common_knowledge):
+        context.setdefault("knowledge", {}).update(common_knowledge())
     return context
 
 
@@ -208,6 +211,8 @@ def validate_model_evo_data_request(request: dict, snapshot: dict,
             not isinstance(request.get(key), str) or not request[key].strip() for key in fields):
         raise ValueError("feature_request needs name, definition, source, as_of, evidence, and validation_plan")
     result = {key: request[key].strip() for key in fields}
+    if result["name"] in snapshot["fields"]:
+        raise ValueError("feature_request.name must be absent from the frozen dataset")
     basis = request.get("basis")
     if basis == "experimental_evidence":
         ids = request.get("trial_ids")
@@ -228,8 +233,10 @@ def validate_model_evo_data_request(request: dict, snapshot: dict,
         requirement_id = request.get("requirement_id")
         requirements = {item["id"]: item for item in snapshot.get("domain_requirements", [])}
         if (not isinstance(requirement_id, str) or requirement_id not in requirements or
-                result["name"] not in requirements[requirement_id]["fields"]):
-            raise ValueError("requirement_id must match a domain requirement for the requested field")
+                result["name"] not in requirements[requirement_id]["fields"] or
+                result["source"] != requirements[requirement_id]["source"] or
+                result["as_of"] != requirements[requirement_id]["as_of"]):
+            raise ValueError("requirement_id must match a domain requirement for the requested field, source, and as_of")
         result.update(basis=basis, requirement_id=requirement_id)
     else:
         raise ValueError("feature_request.basis must be experimental_evidence or domain_requirement")

@@ -17,7 +17,7 @@ uv pip install --python .venv/bin/python -e ./third_party/model-evo-harness
 
 CouponEvo 的 Gitlink 记录 submodule 的默认提交；新搜索会把本地检出推进到最新 `main`。如需运行前查看远端版本，也可手动执行 `git submodule update --init --remote third_party/model-evo-harness`，但新搜索不依赖这一步。检查 submodule 工作区无未提交修改，确保记录的提交与运行代码一致。同一次搜索的 `search`、`--resume` 和 `finalize` 都必须带 `--harness model-evo`。`--resume` 和 `finalize` 不更新 submodule；其提交须与搜索记录相同。CouponEvo 将源码提交、包实现摘要和 catalog 摘要写入任务身份；版本变化会拒绝续跑，也不会复用旧版本经验。省略该参数就是原有搜索；`--harness harnesses/coupon-research.json` 仍使用仓库内 JSON 指南。
 
-接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，模型框架是 `pytorch`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验。规范化的研究设计和外部包身份保存在 CouponEvo journal 中。Agent 上下文包含适用模型的本地 `model_api` 构造和调用签名。ModelEvo 模式允许候选代码导入 catalog 声明的 PyTorch 参考模型模块及 `models.pytorch.training`。评估器仅将 submodule 中的 PyTorch 参考源码复制到临时目录，再以只读方式挂载到 Docker，并设置 `PYTHONPATH`；候选容器看不到 Harness 的 provider、engine、TensorFlow 代码或宿主机 API 密钥。其他 Harness 模块的导入会在候选校验时被拒绝。
+接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，模型框架是 `pytorch`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验。规范化的研究设计和外部包身份保存在 CouponEvo journal 中。Agent 上下文包含适用模型的本地 `model_api` 构造和调用签名。同时提供输出契约、宿主训练责任、已省略机制和通用探索指南。Agent 可以通过 `read_reference` 先读取完整模型模块和训练辅助代码，最多两轮读取；声明已收录 `method_id` 时会自动补读所需源码，再生成候选。真实源码哈希保存在每步 `reference_reads` 中，读取不占训练次数。ModelEvo 模式允许候选代码导入 catalog 声明的 PyTorch 参考模型模块及 `models.pytorch.training`。评估器仅将 submodule 中的 PyTorch 参考源码复制到临时目录，再以只读方式挂载到 Docker，并设置 `PYTHONPATH`；候选容器看不到 Harness 的 provider、engine、TensorFlow 代码或宿主机 API 密钥。其他 Harness 模块的导入会在候选校验时被拒绝。
 
 ModelEvo 模式把可用字段上的网络结构、损失、优化和采样实验放在缺失特征请求之前。实验依据型请求必须引用至少两个已评估且机制不同的试验 ID。若业务专家已能直接确认必要输入缺失，可在 manifest 中显式声明领域要求，允许 Agent 立即请求相应字段：
 
@@ -165,3 +165,12 @@ PY
 ```
 
 报告每个预定种子的验证集轨迹、候选是否真实使用 CUDA、直接配对差值及区间、提前停止和数据请求；完整展示全部预定种子，不据留出集结果挑选一个种子或继续改提案。DeepSeek 生成可能变化，单对或少量搜索都不能证明 harness 稳定提高业务收益。Starbucks 只有购买转化与假设发送成本，没有 App 促活标签、真实券成本或用户级毛利；结论限定为这份公开任务的离线购买转化策略。
+
+
+## 探索效率的验收口径
+
+本轮优先比较固定预算内的有效实验产出：候选通过校验并完成评估的比例、GPU 时间与 API 请求消耗、同一错误修复后的成功率、反思是否引用真实指标并改变下一次假设，以及独立机制的实质差异。方法名或机制字符串的数量只能辅助检查，不能替代内容审核。提前请求数据、无效候选和超时都计入结果，不能只保留完成的实验。
+
+日常模型迭代和报告分析仍用 `high`；异常 uplift、泄漏及成本收益冲突按原有逻辑升级 `max`。对一次暂时性分析错误追加一次重试，记录 `analysis_attempts`；重试不重新训练。两次失败仍阻止该候选成为有效冠军。源码获取和这些回归测试不证明真实数据指标提升；新旧 Harness 的效果需要在相同全量数据、GPU、Agent 配置和预算下重新对照。
+
+本轮集成回归：**147 passed、1 skipped、21 subtests passed**。完整核对范围、已修内容与仍缺的训练/诊断能力见 [Harness 审计](https://github.com/CharlesXu-HQ/ModelEvoHarness/blob/main/docs/research/harness-audit-2026-10-05.md)。

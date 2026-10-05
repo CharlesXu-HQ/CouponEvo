@@ -199,6 +199,8 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
             proposal.get("feature_request"), harness["task_snapshot"], steps or [])
     if approach is not None:
         validated["approach"] = approach.strip()
+    if "reference_reads" in proposal:
+        validated["reference_reads"] = proposal["reference_reads"]
     return validated
 
 
@@ -420,6 +422,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                           ("operator", "parent_ids", "hypothesis", "expected_result")}}
             if "approach" in proposal:
                 pending["approach"] = proposal["approach"]
+            if "reference_reads" in proposal:
+                pending["reference_reads"] = proposal["reference_reads"]
             if "research" in proposal:
                 pending["research"] = proposal["research"]
             if "feature_request" in proposal:
@@ -453,11 +457,15 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             pending["status"] = "failed"
             pending["error"] = str(error)[-2000:]
         if pending["status"] == "evaluated" and analyzer is not None:
-            try:
-                pending["analysis"] = analyzer(parent["report"], pending["report"], candidate,
-                                               root / "runs" / pending["report"]["run_id"])
-            except Exception as error:
-                pending["analysis_error"] = str(error)[-2000:]
+            for attempt in range(2):
+                pending["analysis_attempts"] = attempt + 1
+                try:
+                    pending["analysis"] = analyzer(parent["report"], pending["report"], candidate,
+                                                   root / "runs" / pending["report"]["run_id"])
+                    pending.pop("analysis_error", None)
+                    break
+                except Exception as error:
+                    pending["analysis_error"] = str(error)[-2000:]
         if pending["status"] == "evaluated":
             review = pending.get("analysis") or {}
             review = review.get("max") or review.get("high") or {}

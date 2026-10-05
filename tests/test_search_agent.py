@@ -45,6 +45,39 @@ class SearchAgentTests(unittest.TestCase):
         self.assertIn("experiment_budget_exhausted", body["messages"][0]["content"])
         self.assertIn("Unverified feature timing", body["messages"][0]["content"])
 
+    def test_model_evo_reads_real_source_before_writing_candidate(self):
+        from importlib import import_module
+        package = import_module("model_evo_harness")
+        self.context["harness"] = {"source": "ModelEvoHarness",
+                                   "catalog": package.load_catalog(),
+                                   "task_snapshot": {"framework": "pytorch", "fields": ["x"]}}
+        read = {"action": "read_reference", "framework": "pytorch",
+                "method_ids": ["fm"], "include_training": True}
+        with patch("couponevo.harness._model_evo_package", return_value=package), \
+             patch("urllib.request.urlopen", side_effect=[FakeResponse(read),
+                                                           FakeResponse(self.answer)]) as call:
+            result = propose_search_candidate(self.provider, self.context)
+        self.assertEqual(call.call_count, 2)
+        second = json.loads(call.call_args.args[0].data)["messages"][1]["content"]
+        self.assertIn("def focal_loss", second)
+        self.assertIn("class FM", second)
+        self.assertIn("models/pytorch/architectures.py", result["reference_reads"])
+
+    def test_model_evo_contract_retry_preserves_source_reads(self):
+        from importlib import import_module
+        package = import_module("model_evo_harness")
+        self.context["harness"] = {"source": "ModelEvoHarness",
+                                   "catalog": package.load_catalog(),
+                                   "task_snapshot": {"framework": "pytorch", "fields": ["x"]}}
+        read = {"action": "read_reference", "framework": "pytorch", "method_ids": ["afm"]}
+        with patch("couponevo.harness._model_evo_package", return_value=package), \
+             patch("urllib.request.urlopen", side_effect=[FakeResponse(read),
+                     FakeResponse({"action": "experiment"}), FakeResponse(self.answer)]) as call:
+            result = propose_search_candidate(self.provider, self.context)
+        self.assertEqual(call.call_count, 3)
+        self.assertIn("models/pytorch/interactions.py", result["reference_reads"])
+        self.assertIn("class AFM", json.loads(call.call_args.args[0].data)["messages"][1]["content"])
+
     def test_harness_reaches_provider_with_open_research_contract(self):
         self.context["harness"] = {"plugin": {"name": "custom-research", "directions": []},
                                    "dataset_profile": {"features": {"x": {"dtype": "float64"}}}}

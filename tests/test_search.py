@@ -122,6 +122,30 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(result["steps"][0]["status"], "evaluated")
         self.assertIn("analysis endpoint unavailable", result["steps"][0]["analysis_error"])
 
+    def test_transient_analysis_failure_retries_without_retraining_candidate(self):
+        source = self.seed.read_text()
+        proposal = lambda _: {"operator": "draft", "parent_ids": [],
+                              "hypothesis": "independent candidate", "candidate_py": source + "\n"}
+        calls = []
+
+        def analyze(*_):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("temporary analysis outage")
+            return {"high": {"feature_leakage": {"confirmed": False}}}
+
+        with patch("couponevo.search._evaluate",
+                   return_value={"holdout": "validation", "run_id": "unit"}) as evaluate, \
+                patch("couponevo.search._score", side_effect=[0.0, 1.0]):
+            result = run_search(**self.kwargs, max_steps=1, proposer=proposal, analyzer=analyze)
+        step = result["steps"][0]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(evaluate.call_count, 2)  # seed and candidate, no third training run
+        self.assertEqual(step["analysis_attempts"], 2)
+        self.assertNotIn("analysis_error", step)
+        self.assertEqual(step["eligibility"], "eligible")
+        self.assertEqual(result["best_id"], "step-001")
+
     def test_resume_finishes_pending_candidate_without_new_agent_call(self):
         source = self.seed.read_text()
         proposal = lambda context: {"operator": "draft", "parent_ids": [],
