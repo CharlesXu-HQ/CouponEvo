@@ -54,6 +54,7 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                     lesson["technical_experience"] = {
                         key: str(technical.get(key, ""))[:500]
                         for key in ("lesson", "evidence", "uncertainty", "next_test", "attribution")}
+                    lesson["technical_experience"]["component_assessments"] = technical.get("component_assessments", [])
                     lesson["audit_recommendations"] = reflection.get("audit_recommendations", [])
                     lesson["business_experience"] = {
                         key: str(business[key])[:500]
@@ -74,6 +75,11 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                     technical = {"lesson": "Implementation contradicted; no mechanism conclusion is supported.",
                                  "evidence": evidence, "uncertainty": "The original hypothesis remains untested.",
                                  "next_test": repair, "attribution": "unverified"}
+                    technical["component_assessments"] = [
+                        {"component_id": item["id"], "outcome": "invalid", "evidence": evidence,
+                         "compatibility_limits": "Original implementation claim was contradicted.",
+                         "next_test": repair, "attribution": "unverified"}
+                        for item in (step.get("research") or {}).get("model_design", {}).get("components", [])]
                     lesson.update(knowledge_status="contradicted", validation_delta=None,
                                   verdict="invalid", evidence=evidence, lesson=technical["lesson"],
                                   next_direction=repair, technical_experience=technical)

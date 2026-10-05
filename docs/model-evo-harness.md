@@ -38,6 +38,33 @@ ModelEvo 模式按观测到的问题与信息价值选择实验，不要求遍�
 
 `feature_request` 保留字段名称、定义、来源、时点、证据和新数据集验证计划，并须设置 `basis=experimental_evidence` 与 `trial_ids`，或 `basis=domain_requirement` 与 `requirement_id`。实验提议若附带 `feature_gaps_md`，也必须附带符合相同规则的结构化 `feature_request`；自由文本不能绕过证据要求。领域要求只从 manifest 进入任务快照；Agent 不能自行补写。每轮反思分别保存技术经验与业务经验；后者只能引用验证集报告中的策略级指标 ID，缺乏可观察证据时记录 `not_observable`。相同数据集和实验任务可复用这两类经验，最终留出集结果不进入 Agent 上下文。
 
+## backbone 内部改造与选择性迁移
+
+新建 ModelEvo 搜索会启用 `model_design_required`。`research.model_design` 记录 `estimator`（如 T/S/DR 的估计方式）、`backbone`（表征/预测网络）、`change_scope`、`parent_trial_id`、数据适配理由、对照计划以及完整 `components`。网络交叉、head、loss、采样、优化等都可以作为局部组件，这些例子不是可选方向的封闭枚举。
+
+Agent 优先围绕当前适用 backbone 提出有信息价值的代码改造；明显不适合时可以直接切换，不要求先跑固定轮数。字段较少不自动意味着无法做交叉或训练方法实验；匿名统计字段也不能被假定为序列、item 或业务分群。组件中的 `reference_method_id` 会触发 Harness 的完整源码补读，因此内部组合也能使用仓库实现作为材料。
+
+每次局部改造或切换都必须在 `inheritance` 中逐项处理父组合的组件：
+
+| 决策 | 要求 |
+| --- | --- |
+| `retain` | 保留已有机制、输入与代码位置声明，并检查新组合中的兼容性。 |
+| `adapt` | 说明接口、head、loss 或训练语义的变化，并提出验证。 |
+| `drop` | 写清不适用或放弃的原因，不映射到当前组件。 |
+| `retest` | 将不确定、失败或无效经验作为新假设重新验证，不继承成功结论。 |
+
+计划不能引用不存在的试验或组件，不能静默丢弃父组件，也不能将联合收益写成每个组件已单独有效。`code_sections` 指向候选中的实际类/函数，报告分析将其与父代码、来源代码、candidate diff 和运行观测核对。声明校验本身不证明代码执行或迁移收益。切换应比较旧组合、新 backbone 的基础组合与选择性迁移组合；预算不足以拆开所有因素时，保留这一限制。
+
+Agent 上下文除了原有 seed、最佳/最近候选，最多额外提供三个不同估计方式/backbone 的近期可用组合源码，用于选择性迁移。超出这个有界集合的来源仍可能只有历史元数据，缺少代码时不能声称已复制或已验证。反思中的 `technical_experience.component_assessments` 按组件保存观察、兼容限制、归因与下一实验，并进入同任务经验。无效实现的组件会降级为无效经验；数据、任务或实现身份发生变化仍不会自动跨范围复用。
+
+独立协议详见 [ModelEvoHarness 组件化迭代](../third_party/model-evo-harness/docs/compositional-evolution.md)。本次契约与接入测试不等同于新一轮 GPU 效果实验，也不证明这类迁移必然提高指标。
+
+### 本轮验证边界（2026-10-05）
+
+独立 Harness 的组件协议、原始 catalog/engine/provider/reference 测试共 **82 项通过**。CouponEvo 最终完整测试 **197 项执行、196 通过、1 项本地 CUDA 跳过**；四轮编排测试使用模拟 provider/evaluator，核对了 `initialize → local → local → switch`、选择性迁移、实际父代码绑定、组件反思和同任务经验。新增 `composition.py` 单模块 mypy 检查通过；对 catalog 的扩大类型检查仍发现三个可在修改前复现的存量诊断，未把这称为全仓类型检查通过。
+
+本轮没有新增真实 DeepSeek/GPU 模型搜索。这里确认的是契约、参考源码读取与接入逻辑；真实 Agent 是否持续优先内部改造、迁移后指标是否改善，需要后续在固定预算下实测。
+
 ## GPU A/B 复现实验
 
 2026-10-05 的接入冒烟验证使用 CouponEvo `b2359aa`、ModelEvoHarness `544badf` 的源码归档，在 RTX 5090 上运行。输入为完整的 Starbucks CSV（84,534 行，不抽样）；验证集 16,907 行。候选代码在 Docker 沙箱中导入 Harness 的 PyTorch `FM` 和 `focal_loss`，执行 CUDA 前向和反向传播，再由原有 T-learner 产生策略预测。报告记录 `model_device=cuda` 和 `cuda_peak_bytes=35397120`。这只验证源码挂载、导入和 GPU 执行；FM 探针没有参与策略预测，不能据此推断算法指标提升或 Agent 已完成新一轮搜索。

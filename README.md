@@ -88,6 +88,10 @@ The Agent provider is configurable by URL, model, and API-key environment variab
 
 ## Scope and contribution
 
+### Evolve the inside of a backbone
+
+With ModelEvoHarness, proposals record the estimator, representation backbone and a component inventory with source-code locations. The Agent prioritizes justified local changes and reads component reference code before composing it. A backbone switch accounts for every parent component as retain, adapt, drop or retest, with compatibility and controls; there is no fixed trial quota or model-name sequence. Component experience stays bound to the same dataset/task and keeps its attribution limits. See the [integration contract](docs/model-evo-harness.md#backbone-内部改造与选择性迁移).
+
 ### Evidence before mechanism claims
 
 With ModelEvoHarness, research proposals cite host observations and explain why the next test is worth its budget. Runtime reports record executed preprocessing widths, tensor shapes, devices and losses. Analysis checks the hypothesis against the parent code, the candidate diff and these observations; a contradicted implementation cannot become the champion. Probability-difference proposals expose both potential-outcome predictions for numerical checks, while direct CATE and explicitly named ranking scores keep their own contracts.

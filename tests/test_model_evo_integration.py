@@ -1,6 +1,7 @@
 """The optional external research harness at CouponEvo's search boundary."""
 
 import importlib.util
+import copy
 import json
 import tempfile
 import unittest
@@ -48,6 +49,14 @@ class ModelEvoIntegrationTests(unittest.TestCase):
             "falsification": "No policy value gain under the frozen validation split",
             "evidence_ids": ["task.train_profile"], "change_factors": ["decision_rule"],
             "prediction_semantics": "direct_cate",
+            "model_design": {"estimator": "T-learner", "backbone": "linear",
+                             "change_scope": "initialize", "parent_trial_id": None,
+                             "rationale": "Record the initial predictor and policy",
+                             "data_fit": "Use existing scalar features",
+                             "comparison_plan": "Frozen validation policy comparison",
+                             "components": [{"id": "predictor", "mechanism": "Separate arm regression",
+                                             "code_sections": ["fit_predict"], "input_fields": [],
+                                             "required_capabilities": []}], "inheritance": []},
             "alternatives": [{"direction": "Retune the predictor", "mechanism": "Change model depth",
                               "reason": "Does not isolate the policy rule"}],
         }
@@ -57,6 +66,9 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                          "candidate_py": self.seed.read_text(), "research": self.research}
         self.report = {"run_id": "unit", "holdout": "validation",
                        "policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        self.assessment = {"component_id": "predictor", "outcome": "inconclusive",
+                           "evidence": "No isolated comparison", "compatibility_limits": "This dataset only",
+                           "next_test": "Controlled ablation", "attribution": "unverified"}
 
     def context(self):
         return build_harness_context(self.mode, self.manifest, 7, False, objective="active")
@@ -123,7 +135,15 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         with patch("couponevo.search.refresh_model_evo") as refresh, \
                 patch("couponevo.search._evaluate", return_value=self.report):
             run_search(**self.kwargs, max_steps=1, proposer=lambda _: self.proposal)
-            run_search(**self.kwargs, max_steps=2, proposer=lambda _: self.proposal,
+            resumed = copy.deepcopy(self.proposal)
+            resumed.update(operator="improve", parent_ids=["step-001"],
+                           candidate_py=self.seed.read_text() + "\n# Local follow-up\n")
+            resumed["research"]["model_design"].update(change_scope="local", parent_trial_id="step-001",
+                inheritance=[{"source_trial_id": "step-001", "component_id": "predictor",
+                              "target_component_id": "predictor", "decision": "retest",
+                              "reason": "No component review ran in this refresh-only fixture", "compatibility": "Same target and inputs",
+                              "validation_plan": "Recheck policy value"}])
+            run_search(**self.kwargs, max_steps=2, proposer=lambda _: resumed,
                        resume=True)
             refresh.assert_called_once_with(self.mode)
 
@@ -132,6 +152,7 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         snapshot = before["task_snapshot"]
         self.assertEqual(before["source"], "ModelEvoHarness")
         self.assertEqual(snapshot["framework"], "pytorch")
+        self.assertTrue(snapshot["model_design_required"])
         self.assertEqual(snapshot["stage"], "policy")
         self.assertEqual(snapshot["fields"], ["x"])
         self.assertEqual(snapshot["objective"], {"name": "active", "direction": "max"})
@@ -382,7 +403,8 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                     "lesson": "Policy score alone is insufficient", "next_direction": "Test a loss change",
                     "technical_experience": {"lesson": "Interaction did not isolate loss effects",
                                              "evidence": "Validation score 0.03",
-                                             "uncertainty": "One split only", "next_test": "Compare weighted loss"},
+                                             "uncertainty": "One split only", "next_test": "Compare weighted loss",
+                                             "component_assessments": [self.assessment]},
                     "business_experience": {"status": "observed",
                                             "observation_id": seen[0]["id"],
                                             "insight": "The active policy estimate is positive",
@@ -413,6 +435,84 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                          {"revenue", "coupon_cost", "net"})
         self.assertEqual(harness_module.validation_business_observations(
             {**report, "holdout": "test"}), [])
+
+    def test_local_component_iterations_then_selective_backbone_migration_reach_review_and_memory(self):
+        contexts, reviews, observations = [], [], []
+        base = copy.deepcopy(self.research["model_design"])
+        base.update(backbone="MLP", components=[
+            {"id": name, "mechanism": mechanism, "code_sections": [section],
+             "input_fields": ["x"], "required_capabilities": ["tabular_features"]}
+            for name, mechanism, section in (("cross", "Bilinear feature crossing", "CrossBlock"),
+                                              ("loss", "Arm-specific BCE", "train_loss"))])
+
+        def propose(context):
+            contexts.append(context)
+            if context.get("experiment_budget_exhausted"):
+                return {"action": "stop", "reason": "Budget exhausted; component benefits remain exploratory"}
+            count = len(context["history"]) - 1
+            current = copy.deepcopy(base if count == 0 else context["history"][-1]["research"]["model_design"])
+            if count:
+                current.update(parent_trial_id=f"step-{count:03d}", change_scope="local", inheritance=[])
+                for component in current["components"]:
+                    decision = "retain"
+                    if count == 3:
+                        decision = "adapt" if component["id"] == "loss" else (
+                            "drop" if component["id"] in {"normalization", "dropout"} else "retain")
+                    record = {"source_trial_id": f"step-{count:03d}", "component_id": component["id"],
+                              "decision": decision, "reason": "Check usefulness on the new candidate",
+                              "compatibility": "Compare input shape and training target",
+                              "validation_plan": "Matched-budget ablation on frozen validation"}
+                    if decision != "drop":
+                        record["target_component_id"] = component["id"]
+                    current["inheritance"].append(record)
+            if count in (1, 2):
+                name = "normalization" if count == 1 else "dropout"
+                current["components"].append({"id": name, "mechanism": name,
+                    "code_sections": [name], "input_fields": ["x"], "required_capabilities": []})
+            if count == 3:
+                current.update(backbone="GatedExperts", change_scope="switch")
+                current["components"] = current["components"][:2]
+                current["components"][1]["mechanism"] = "Shared expert BCE with arm masking"
+            source = "import torch\n"
+            source += "class CrossBlock(torch.nn.Module):\n    def forward(self, x):\n        return x * x\n"
+            source += f"def train_loss(logits, y):\n    return torch.nn.functional.binary_cross_entropy_with_logits(logits, y) * {count + 1}\n"
+            source += "def normalization(x):\n    return x / (1 + x.abs())\n"
+            source += "def dropout(x):\n    return torch.nn.functional.dropout(x, p=0.1)\n"
+            source += "def fit_predict(*args, **kwargs):\n    return None\n"
+            return {**self.proposal, "operator": "improve", "parent_ids": ["seed" if count == 0 else f"step-{count:03d}"],
+                    "candidate_py": source, "research": {**self.research, "model_design": current}}
+
+        def analyze(_prior, revised, *_):
+            reviews.append(revised["experiment_context"])
+            return {"high": {"implementation_check": {"status": "unverified", "evidence": "Mocked evaluator only",
+                                                       "changed_factors": ["network", "loss"]}}}
+
+        def reflect(observation):
+            observations.append(observation)
+            return {"verdict": "inconclusive", "evidence": "Mocked validation result",
+                    "lesson": "Components require individual ablations", "next_direction": "Test transferred cross block",
+                    "technical_experience": {"lesson": "Composition remains exploratory", "evidence": "Joint change",
+                        "uncertainty": "No isolated effects", "next_test": "Ablate blocks", "attribution": "unverified",
+                        "component_assessments": [{**self.assessment, "component_id": component["id"]}
+                            for component in observation["research"]["model_design"]["components"]]},
+                    "business_experience": {"status": "not_observable", "reason": "Synthetic protocol test"}}
+
+        with patch("couponevo.search.refresh_model_evo"), \
+                patch("couponevo.search._evaluate", return_value=self.report):
+            journal = run_search(**self.kwargs, max_steps=4, proposer=propose, analyzer=analyze, reflector=reflect)
+        designs = [step["research"]["model_design"] for step in journal["steps"]]
+        self.assertEqual([item["change_scope"] for item in designs], ["initialize", "local", "local", "switch"])
+        self.assertEqual([item["estimator"] for item in designs], ["T-learner"] * 4)
+        self.assertEqual([item["decision"] for item in designs[-1]["inheritance"]], ["retain", "adapt", "drop", "drop"])
+        self.assertEqual(reviews[-1]["parent_research"]["model_design"]["backbone"], "MLP")
+        self.assertIn("CrossBlock", reviews[-1]["component_sources"]["step-003"]["candidate_py"])
+        self.assertEqual(observations[-1]["trial_id"], "step-004")
+        self.assertEqual(contexts[-1]["research_history"][-1]["model_design"], designs[-1])
+        from couponevo.experience import load_experience
+        lessons = load_experience(self.root / "runs", journal["task"])
+        self.assertEqual(lessons[0]["research"]["model_design"], designs[-1])
+        self.assertEqual({item["component_id"] for item in lessons[0]["technical_experience"]["component_assessments"]},
+                         {"cross", "loss"})
 
     def test_external_validator_blocks_unavailable_family_but_accepts_novel_direction(self):
         context = self.context()
@@ -469,7 +569,8 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                       "lesson": "Try another mechanism", "next_direction": "Feature interaction",
                       "technical_experience": {"lesson": "Current candidate did not establish a gain",
                                                "evidence": "No clear gain", "uncertainty": "Validation only",
-                                               "next_test": "Try feature interaction"},
+                                               "next_test": "Try feature interaction",
+                                               "component_assessments": [self.assessment]},
                       "business_experience": {"status": "not_observable",
                                               "reason": "No validation policy observation was supplied"}}
         with patch("sys.argv", args), patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}), \

@@ -157,6 +157,7 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
                                            hashlib.sha256(Path(manifest).read_bytes()).hexdigest() +
                                            str(seed)).encode()).hexdigest(),
         "stage": "policy", "framework": "pytorch", "fields": list(dataset.features),
+        "model_design_required": True,
         "capabilities": capabilities,
         "objective": {"name": objective, "direction": "max"},
         "evaluation_protocol": {
@@ -185,6 +186,7 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
             "method_applicability": methods,
             "decision_applicability": package.decision_applicability(snapshot, catalog),
             "source_commit": _model_evo_revision(package),
+            "composition_instructions": package.COMPOSITION_INSTRUCTIONS,
             "task_snapshot": snapshot, "dataset_profile": profile}
     training_applicability = getattr(package, "training_applicability", None)
     if callable(training_applicability):
@@ -344,6 +346,9 @@ def validate_model_evo_reflection(reflection: dict, observation: dict, *,
         raise ValueError("business_experience.status must be observed or not_observable")
     if evidence is not None:
         evaluation = {"business_observations": observation.get("business_observations", []),
+                      "research": observation.get("research") or {},
+                      "trial_id": observation.get("trial_id"),
+                      "trial_status": observation.get("status"),
                       "implementation_check": (observation.get("implementation_check")
                                                if isinstance(observation.get("implementation_check"), dict)
                                                else {}),
@@ -356,7 +361,7 @@ def validate_model_evo_reflection(reflection: dict, observation: dict, *,
     return reflection
 
 
-def validate_research(proposal: dict, harness: dict, *,
+def validate_research(proposal: dict, harness: dict, *, steps: list[dict] | None = None,
                       evidence: list[dict] | None = None) -> dict:
     """Require a testable design, without enumerating allowed model families."""
     if harness.get("source") == "ModelEvoHarness":
@@ -371,8 +376,15 @@ def validate_research(proposal: dict, harness: dict, *,
                              "direct_cate, or ranking_score")
         package = _model_evo_package()
         args = ({**proposal, "research": bridged}, harness["task_snapshot"], harness["catalog"])
-        checked = (package.validate_research(*args, evidence=evidence) if evidence is not None
-                   else package.validate_research(*args))
+        kwargs = {"evidence": evidence} if evidence is not None else {}
+        if steps is not None:
+            kwargs["sources"] = package.composition_sources(_model_evo_steps(steps))
+        checked = package.validate_research(*args, **kwargs)
+        design = checked.get("model_design")
+        if design and design["change_scope"] != "initialize":
+            parents = proposal.get("parent_ids") or []
+            if not parents or design["parent_trial_id"] != parents[0]:
+                raise ValueError("model_design.parent_trial_id must match the primary code parent")
         if semantics is not None:
             checked["prediction_semantics"] = semantics
         return checked
@@ -402,5 +414,6 @@ def research_history(steps: list[dict]) -> list[dict]:
     return [{"id": step["id"], "direction": step["research"]["direction"],
              "mechanism": step["research"]["mechanism"], "status": step["status"],
              "eligibility": step.get("eligibility"), "validation_score": step.get("score"),
+             "model_design": step["research"].get("model_design"),
              "reflection": step.get("reflection")}
             for step in steps if "research" in step]

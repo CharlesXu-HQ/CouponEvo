@@ -180,6 +180,19 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
             "reference source files read-only. Adapt imported models or training functions to "
             "CouponEvo's treatment-effect contract. Do not import provider, engine, catalog, or "
             "TensorFlow modules from ModelEvoHarness. "
+            "Separate the treatment-effect estimator (such as T/DR/S-learner) from its neural "
+            "backbone. After selecting a viable backbone, prefer meaningful internal code changes "
+            "using reference network blocks, representations, losses and training strategies; "
+            "do not treat switching named models as the default optimization. Write or adapt "
+            "component code for this backbone rather than merely wrapping a catalog model. "
+            "Choose local depth versus a switch from evidence, not a fixed number of trials. "
+            "For local/switch, model_design.parent_trial_id must equal parent_ids[0]. "
+            "Few numeric features can still support useful learned interactions; sequence-specific "
+            "blocks need actual ordered sequence inputs. On a switch, inspect prior component "
+            "code and outcomes and selectively retain, adapt, drop or retest each parent component. "
+            "Keep compatible training strategies while checking new estimator targets and tensor "
+            "contracts. Missing source code permits a retest proposal, not a claim of verified "
+            "copying. Do not claim every component caused a jointly improved model's result. "
             "The dataset may already have rich fields: first test justified changes to feature "
             "representation or crosses, model architecture, loss, optimization, sampling, and hard "
             "example mining using the available inputs. Preserve randomization and validation "
@@ -226,6 +239,7 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
             "otherwise testable research and may cite declared facts. At budget exhaustion use stop "
             "with these notes and a concrete next hypothesis unless a valid feature request is supported."
         )
+        instruction += " " + context["harness"].get("composition_instructions", "")
     elif context.get("harness"):
         instruction += (
             " Use harness.plugin as a non-exhaustive research guide, not an allowed-model list. "
@@ -346,6 +360,7 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
             "evidence_ids and validation_plan and remain nonblocking. Any future_feature_suggestions "
             "must pass the same experimental-evidence or explicit-domain-requirement rules as a data request."
         )
+        instruction += " " + observation.get("composition_instructions", "")
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps(observation, ensure_ascii=False)}]
     for attempt in range(2):

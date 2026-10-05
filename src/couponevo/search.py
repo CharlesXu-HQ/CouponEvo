@@ -103,6 +103,23 @@ def _context(journal: dict, root: Path) -> dict:
         selected.append(latest)
     if failed is not None:
         selected.append(failed)
+    represented = set()
+    selected_ids = {entry["id"] for entry in selected}
+    extra = 0
+    for entry in reversed(journal["steps"]):
+        design = (entry.get("research") or {}).get("model_design")
+        if (not design or entry["status"] != "evaluated" or
+                str(entry.get("eligibility", "")).startswith("blocked")):
+            continue
+        pair = (design["estimator"], design["backbone"])
+        if pair not in represented:
+            represented.add(pair)
+            if entry["id"] in selected_ids:
+                continue
+            selected.append(entry)
+            extra += 1
+            if extra == 3:
+                break
     available = {}
     for entry in selected:
         candidate = root / entry["candidate"]
@@ -308,7 +325,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                 "reflection" not in step), None) if reflector else None
             if unreflected is not None:
                 assert reflector is not None
-                observation = {"objective": objective, "budget": journal["task"]["budget"],
+                observation = {"trial_id": unreflected["id"],
+                               "objective": objective, "budget": journal["task"]["budget"],
                                "hypothesis": unreflected["hypothesis"],
                                "approach": unreflected.get("approach"),
                                "research": unreflected.get("research"),
@@ -325,13 +343,14 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                "eligibility": unreflected.get("eligibility")}
                 if (journal.get("harness") or {}).get("source") == "ModelEvoHarness":
                     observation["harness_source"] = "ModelEvoHarness"
+                    observation["composition_instructions"] = journal["harness"].get("composition_instructions", "")
                     observation["business_observations"] = unreflected.get(
                         "business_observations", [])
                     review = unreflected.get("analysis") or {}
                     review = review.get("max") or review.get("high") or {}
                     observation.update(evidence=search_evidence(journal),
                                        task_snapshot=journal["harness"]["task_snapshot"],
-                                       trial_history=[{key: step[key] for key in ("id", "status", "research")
+                                       trial_history=[{key: step[key] for key in ("id", "status", "research", "eligibility", "analysis", "reflection")
                                                        if key in step} for step in journal["steps"]],
                                        implementation_check=review.get("implementation_check"))
                 try:
@@ -347,8 +366,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                             "blocked_implementation", "blocked_feature_leakage"}) and reflection["verdict"] != "invalid":
                         raise ValueError("failed or blocked experiments require an invalid reflection")
                     if observation.get("harness_source") == "ModelEvoHarness":
-                        validate_model_evo_reflection(reflection, observation,
-                                                      evidence=observation["evidence"])
+                        reflection = validate_model_evo_reflection(reflection, observation,
+                                                                   evidence=observation["evidence"])
                     unreflected["reflection"] = {key: reflection[key] for key in
                                                  ("verdict", "evidence", "lesson", "next_direction")}
                     if observation.get("harness_source") == "ModelEvoHarness":
@@ -390,7 +409,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                                   evidence=context["evidence"])
                     if journal.get("harness") and proposal["action"] == "experiment" and not exhausted:
                         proposal["research"] = validate_research(
-                            raw, journal["harness"], evidence=context["evidence"])
+                            raw, journal["harness"], steps=[journal["baseline"], *journal["steps"]],
+                            evidence=context["evidence"])
                     if exhausted and proposal["action"] not in ("stop", "request_data"):
                         proposal = None
                         break
@@ -512,6 +532,12 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                 "change_audit": pending.get("change_audit"),
                 "parent_id": parent["id"],
                 "parent_candidate_py": prior_source,
+                "parent_research": parent.get("research"),
+                "component_sources": {identifier: {key: source[key] for key in
+                                      ("candidate_py", "research", "eligibility", "status")}
+                                      for identifier, source in _context(journal, root)["available"].items()
+                                      if identifier in {item["source_trial_id"] for item in
+                                          (pending.get("research") or {}).get("model_design", {}).get("inheritance", [])}},
                 "candidate_diff": "".join(difflib.unified_diff(
                     prior_source.splitlines(keepends=True), candidate_source.splitlines(keepends=True),
                     fromfile="parent.py", tofile="candidate.py")),
