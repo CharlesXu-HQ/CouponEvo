@@ -22,6 +22,8 @@ from .data import load_dataset, split_dataset
 from .evaluate import Budget, bootstrap_policy_difference, compare_policies, estimate_cost, evaluate_policy, ranking_diagnostic, select_policy
 from .provider import ApiProvider
 from .sandbox import DockerSandbox
+from .runtime_diagnostics import (check_prediction_contract, observe_candidate,
+                                  prediction_fingerprint)
 from .search import finalize_search, run_search
 
 
@@ -47,7 +49,11 @@ def _predict(path: Path, train: pd.DataFrame, target: pd.DataFrame,
     devices = [torch.cuda.current_device()] if device == "cuda" and torch.cuda.is_available() else []
     with torch.random.fork_rng(devices=devices):
         torch.manual_seed(seed)
-        return _candidate_function(path)(train.copy(deep=True), target.copy(deep=True), **args)
+        with observe_candidate(train, args.get("features", [])) as observation:
+            result = _candidate_function(path)(train.copy(deep=True), target.copy(deep=True), **args)
+        if isinstance(result, pd.DataFrame):
+            result.attrs["runtime_diagnostics"] = observation.to_dict()
+        return result
 
 
 def _random_policy(n: int, expected_cost: np.ndarray | None, budget: Budget, seed: int) -> np.ndarray:
@@ -208,6 +214,20 @@ def _render(report: dict) -> str:
                 for metric, estimate in metrics.items():
                     lines.append(f"- {name} / {metric}：{estimate['mean']:.6g}（95% 区间 {estimate['lower']:.6g} 至 {estimate['upper']:.6g}）")
             lines.append("")
+    diagnostics = report.get("runtime_diagnostics") or {}
+    if diagnostics:
+        preprocessing = diagnostics.get("preprocessing") or {}
+        events = diagnostics.get("events") or {}
+        widths = sorted({item["shape"][1] for item in events.get("torch_tensors", [])
+                         if len(item.get("shape", [])) == 2})
+        widths.extend(item["input_shape"][1] for item in events.get("torch_modules", [])
+                      if len(item.get("input_shape", [])) == 2)
+        lines.extend(["## 运行时诊断", "",
+                      f"预测语义校验：{diagnostics.get('prediction_contract', {}).get('status', 'not_observable')}",
+                      f"原始特征数：{preprocessing.get('raw_feature_count', '未知')}；"
+                      f"观测到的 PyTorch 二维输入宽度：{sorted(set(widths)) or '未观测'}；"
+                      f"观测到的 loss：{', '.join(events.get('losses', [])) or '未观测'}。",
+                      "Pandas 列名只记录执行中观测到的操作，不代表完整列血缘。", ""])
     lines.extend(["## 数据与特征缺口", "", report.get("feature_gaps") or "当前轮未提出新字段。Agent 可根据指标、可用特征和干预前时点在下一轮补充建议。", "",
                   "## 数据证据", "", f"特征时点：{report['data_validation']['feature_timing']}；分组概率：{report['data_validation']['assignment_probability']}", "",
                   "## 口径与限制", "", *[f"- {note}" for note in report["notes"]], ""])
@@ -256,7 +276,14 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         raise ValueError("candidate did not confirm CUDA model training and prediction")
     if sandbox and device == "cuda" and predictions.attrs.get("cuda_peak_bytes", 0) <= 0:
         raise ValueError("candidate did not allocate a CUDA tensor in the sandbox")
-    prediction_sha = _sha(predictions[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
+    runtime_diagnostics = predictions.attrs.get("runtime_diagnostics") or {
+        "preprocessing": {"raw_feature_count": len(data.features), "get_dummies": []},
+        "events": {"torch_tensors": [], "torch_modules": [], "losses": []},
+        "coverage": {"observer": "not_observed", "column_lineage": "not_verified"},
+    }
+    runtime_diagnostics["prediction_contract"] = check_prediction_contract(
+        predictions, outcome_cols, candidate_train)
+    prediction_sha = prediction_fingerprint(predictions, expected_columns, outcome_cols)
     ranking = {name: ranking_diagnostic(target, predictions[f"{name}_uplift"].to_numpy(),
                                         column, data.propensity)
                for name, column in outcome_cols.items()}
@@ -312,6 +339,7 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
                      for name, policy in policies.items() if name != "random"}
     paired = None
     baseline_prediction_sha = None
+    baseline_runtime_diagnostics = None
     if compare_candidate_path:
         baseline = (sandbox.predict(compare_candidate_path, candidate_train, candidate_target,
                                     candidate_args, seed, device) if sandbox else
@@ -322,7 +350,11 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
             raise ValueError("comparison candidate did not confirm CUDA training and prediction")
         if sandbox and device == "cuda" and baseline.attrs.get("cuda_peak_bytes", 0) <= 0:
             raise ValueError("comparison candidate did not allocate a CUDA tensor in the sandbox")
-        baseline_prediction_sha = _sha(baseline[sorted(expected_columns)].to_numpy(dtype="<f8").tobytes())
+        baseline_runtime_diagnostics = baseline.attrs.get("runtime_diagnostics")
+        if baseline_runtime_diagnostics is not None:
+            baseline_runtime_diagnostics["prediction_contract"] = check_prediction_contract(
+                baseline, outcome_cols, candidate_train)
+        baseline_prediction_sha = prediction_fingerprint(baseline, expected_columns, outcome_cols)
         old_policies, _ = _candidate_policies(baseline, data, budget, primary, money,
                                               compare_candidate_path, seed, sandbox, device)
         paired = {}
@@ -366,7 +398,7 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         notes.append(f"最终留出集的配对差值另用 {bootstrap_reps} 次用户级有放回抽样计算百分位区间。")
     framework_sha = _sha(b"".join(Path(__file__).with_name(name).read_bytes()
                               for name in ("cli.py", "data.py", "evaluate.py", "sandbox.py",
-                                           "sandbox_worker.py", "experience.py")))
+                                           "sandbox_worker.py", "runtime_diagnostics.py", "experience.py")))
     identity = {"dataset": data.source_sha256, "manifest": _sha(manifest_bytes),
                 "framework": framework_sha,
                 "candidate": _sha(candidate_bytes), "split": _split_sha(parts),
@@ -389,6 +421,7 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
               "split_sha256": identity["split"], "budget": identity["budget"], "seed": seed,
               "model_device": device,
               "cuda_peak_bytes": predictions.attrs.get("cuda_peak_bytes") if sandbox else None,
+              "runtime_diagnostics": runtime_diagnostics,
               "execution": identity["execution"],
               "holdout": "test" if final else "validation", "holdout_size": len(target),
               "features": data.features, "outcome_columns": data.outcomes,
@@ -403,6 +436,8 @@ def run_experiment(manifest_path: Path, budget: Budget, *, seed: int, output: Pa
         report["compare_prediction_sha256"] = baseline_prediction_sha
         report["paired_vs_baseline"] = paired
         report["baseline_policy_sha256"] = _policy_shas(old_policies)
+        if baseline_runtime_diagnostics is not None:
+            report["baseline_runtime_diagnostics"] = baseline_runtime_diagnostics
     if bootstrap_reps:
         def bootstrap(frame, new, old, outcome, propensity):
             return bootstrap_policy_difference(frame, new, old, outcome, propensity,

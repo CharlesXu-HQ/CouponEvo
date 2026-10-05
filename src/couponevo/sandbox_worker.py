@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from .runtime_diagnostics import observe_candidate
+
 
 def _candidate(path: Path):
     spec = importlib.util.spec_from_file_location("sandbox_candidate", path)
@@ -23,7 +25,6 @@ def _candidate(path: Path):
 def main() -> None:
     input_dir, output_dir = Path(sys.argv[1]), Path(sys.argv[2])
     job = json.loads((input_dir / "job.json").read_text())
-    candidate = _candidate(input_dir / "candidate.py")
     seed = job["seed"]
     np.random.seed(seed)
     random.seed(seed)
@@ -37,14 +38,18 @@ def main() -> None:
             train = pd.read_json(source, orient="table")
         with (input_dir / "target.json").open() as source:
             target = pd.read_json(source, orient="table")
-        result = candidate.fit_predict(train, target, **job["args"])
+        with observe_candidate(train, job["args"].get("features", [])) as observation:
+            candidate = _candidate(input_dir / "candidate.py")
+            result = candidate.fit_predict(train, target, **job["args"])
         if not isinstance(result, pd.DataFrame):
             raise ValueError("candidate must return a DataFrame")
         (output_dir / "predictions.json").write_text(result.to_json(orient="table", double_precision=15))
         response = {"model_device": result.attrs.get("model_device"),
                     "cuda_peak_bytes": (torch.cuda.max_memory_allocated()
-                                        if job["device"] == "cuda" else 0)}
+                                        if job["device"] == "cuda" else 0),
+                    "runtime_diagnostics": observation.to_dict()}
     elif job["operation"] == "policy":
+        candidate = _candidate(input_dir / "candidate.py")
         chooser = getattr(candidate, "choose_policy", None)
         if chooser is None:
             response = {"policy": None}

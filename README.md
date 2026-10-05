@@ -88,6 +88,12 @@ The Agent provider is configurable by URL, model, and API-key environment variab
 
 ## Scope and contribution
 
+### Evidence before mechanism claims
+
+With ModelEvoHarness, research proposals cite host observations and explain why the next test is worth its budget. Runtime reports record executed preprocessing widths, tensor shapes, devices and losses. Analysis checks the hypothesis against the parent code, the candidate diff and these observations; a contradicted implementation cannot become the champion. Probability-difference proposals expose both potential-outcome predictions for numerical checks, while direct CATE and explicitly named ranking scores keep their own contracts.
+
+These checks do not prove complete feature or gradient lineage. Reflections retain that uncertainty and distinguish joint changes from isolated attribution. Timing or cost concerns can remain nonblocking audit recommendations; an experimental feature request needs measured, trial-specific gap evidence across distinct mechanisms. Invalid proposals at budget exhaustion preserve completed experiments and close the search with the error recorded.
+
 The current implementation supports one treatment versus control, one targeting decision, fixed CSV datasets, and offline RCT evaluation. It does not send coupons or establish production uplift.
 
 Start with the [architecture](docs/architecture.md), [dataset research](docs/research/open-uplift-datasets.md), or [contribution guide](CONTRIBUTING.md). Run tests with `uv run --frozen python -m unittest discover -s tests -v`. Code is [Apache-2.0](LICENSE); upstream datasets retain their own terms.

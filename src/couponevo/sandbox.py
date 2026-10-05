@@ -97,6 +97,7 @@ class DockerSandbox:
         result = pd.read_json(StringIO(raw), orient="table")
         result.attrs["model_device"] = response.get("model_device")
         result.attrs["cuda_peak_bytes"] = response.get("cuda_peak_bytes", 0)
+        result.attrs["runtime_diagnostics"] = response.get("runtime_diagnostics")
         return result
 
     def choose(self, candidate: Path, scores: np.ndarray, costs: np.ndarray | None,

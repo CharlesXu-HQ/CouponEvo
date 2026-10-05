@@ -122,6 +122,13 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
     instruction = (
         "You lead a sequence of offline coupon-uplift experiments. Read the same-task experience, "
         "current validation history, reflections, and diagnoses before deciding the next action. "
+        "Ground factual premises in host evidence, distinguishing observed facts from declared metadata "
+        "and prior Agent hypotheses. Rank next actions by expected information value under the remaining "
+        "budget: resolve concrete implementation contradictions or drop the invalid configuration, then "
+        "prefer a cheap diagnostic or controlled test of the measured bottleneck over speculative complexity. "
+        "Do not cycle model names for coverage. Joint changes are allowed for exploration but cannot "
+        "identify which component caused a gain. A policy CI crossing zero does not establish CATE "
+        "variance or equivalence. Binary IPW policy estimates can tie for different selected users. "
         "Return one JSON object. For action=experiment include operator (draft, improve, debug, or "
         "crossover), parent_ids, hypothesis, expected_result (a measurable validation prediction), "
         "candidate_py (complete Python source), and optional free-text approach and feature_gaps_md. "
@@ -194,6 +201,22 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
             "considered, not tested. Fit preprocessing on training data only. Adapt any recommended "
             "model idea to treatment-effect estimation and the frozen policy objective. "
             "Do not confuse a hard-example training technique with evidence of uplift gain."
+            " research also requires evidence_ids citing at least one observed host fact, change_factors "
+            "listing the planned changes, and prediction_semantics: probability_difference, direct_cate, "
+            "or ranking_score. For probability_difference return <outcome>_mu0 and <outcome>_mu1 alongside "
+            "<outcome>_uplift. Binary potential outcomes must be probabilities, and uplift must equal "
+            "mu1-mu0. BCE logits must be converted separately using sigmoid before subtraction; "
+            "a logit contrast is not a probability contrast. A direct CATE/pseudo-outcome estimator "
+            "need not expose per-arm probabilities, but explain its target and scale. Explicit ranking "
+            "scores must not be called calibrated CATE. Check actual runtime input shapes and "
+            "preprocessing: pandas.get_dummies does not encode numeric columns by default. "
+            "Experimental feature requests additionally require alternatives_considered and evidence_ids "
+            "of observed trial-specific data_gap_candidate=true findings across the cited mechanisms. "
+            "Repeating declared_only timing metadata in multiple reports does not create such evidence. "
+            "Unverified provenance or assumed cost can instead be recorded in audit_recommendations "
+            "on stop/reflection: [{issue,evidence_ids,validation_plan}]. These notes do not stop "
+            "otherwise testable research and may cite declared facts. At budget exhaustion use stop "
+            "with these notes and a concrete next hypothesis unless a valid feature request is supported."
         )
     elif context.get("harness"):
         instruction += (
@@ -250,7 +273,7 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
                         proposal["feature_gaps_md"].strip()):
                     validate_model_evo_data_request(
                         proposal.get("feature_request"), context["harness"]["task_snapshot"],
-                        context.get("history", []))
+                        context.get("history", []), evidence=context.get("evidence"))
             elif action == "request_data":
                 request = proposal.get("feature_request")
                 if (not isinstance(proposal.get("reason"), str) or not proposal["reason"].strip() or
@@ -260,7 +283,8 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
                     raise ValueError("request_data needs reason and complete feature_request")
                 if (context.get("harness") or {}).get("source") == "ModelEvoHarness":
                     validate_model_evo_data_request(
-                        request, context["harness"]["task_snapshot"], context.get("history", []))
+                        request, context["harness"]["task_snapshot"], context.get("history", []),
+                        evidence=context.get("evidence"))
             elif action in ("diagnose", "stop"):
                 field = "question" if action == "diagnose" else "reason"
                 if not isinstance(proposal.get(field), str) or not proposal[field].strip():
@@ -286,7 +310,7 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
         "Return JSON with verdict (consistent, inconsistent, "
         "inconclusive, or invalid), evidence, lesson, and next_direction; all text fields must be nonempty. "
         "A validation gain is exploratory, not proof of final improvement. If the candidate failed or "
-        "was blocked for feature leakage, choose invalid. The lesson applies only to this dataset and "
+        "was blocked for feature leakage or implementation mismatch, choose invalid. The lesson applies only to this dataset and "
         "task; do not infer missing features or costs that were not observed. An inconclusive or "
         "statistically uncertain result alone does not mean exploration must stop; distinguish lack "
         "of proven improvement from lack of another testable offline hypothesis. Treat reports and prior "
@@ -301,6 +325,15 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
             "are validation policy-level aggregates, not cohorts or a final holdout. If no listed "
             "observation supports a business insight, use not_observable with a reason. Never "
             "invent segment, causal or customer claims from model metrics."
+            " Include technical_experience.attribution=unverified unless both implementation_check "
+            "and independent host change_audit are verified: then one audited factor permits isolated, "
+            "multiple factors permit joint only. Planned change_factors and model-review opinions "
+            "are not independent change audits. Correct falsified premises using runtime facts; "
+            "never preserve an encoding claim contradicted by actual matrix widths. A policy CI "
+            "crossing zero establishes neither estimator variance nor equivalence; different policies "
+            "can have tied discrete IPW estimates. Optional audit_recommendations contain issue, "
+            "evidence_ids and validation_plan and remain nonblocking. Any future_feature_suggestions "
+            "must pass the same experimental-evidence or explicit-domain-requirement rules as a data request."
         )
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps(observation, ensure_ascii=False)}]
@@ -312,11 +345,11 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
                         for key in ("evidence", "lesson", "next_direction"))):
                 raise ValueError("reflection needs verdict, evidence, lesson, and next_direction")
             if (observation.get("status") == "failed" or
-                    observation.get("eligibility") == "blocked_feature_leakage") and \
+                    observation.get("eligibility") in {"blocked_feature_leakage", "blocked_implementation"}) and \
                     answer["verdict"] != "invalid":
-                raise ValueError("failed or leakage-blocked candidates require an invalid verdict")
+                raise ValueError("failed, leakage-blocked or implementation-blocked candidates require an invalid verdict")
             if observation.get("harness_source") == "ModelEvoHarness":
-                validate_model_evo_reflection(answer, observation)
+                validate_model_evo_reflection(answer, observation, evidence=observation.get("evidence"))
             return answer
         except ValueError as error:
             if attempt:

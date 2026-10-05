@@ -11,7 +11,8 @@ from .provider import ApiProvider, request_json
 FLAGS = ("uplift_anomaly", "feature_leakage", "cost_tradeoff_unclear")
 
 
-def _ask(provider: ApiProvider, effort: str, messages: list[dict]) -> dict:
+def _ask(provider: ApiProvider, effort: str, messages: list[dict], *,
+         implementation_required: bool = False) -> dict:
     for attempt in range(2):
         try:
             answer = request_json(provider, effort, messages,
@@ -27,12 +28,21 @@ def _ask(provider: ApiProvider, effort: str, messages: list[dict]) -> dict:
                      (not leakage["flag"] or not isinstance(leakage.get("evidence"), str) or
                       not leakage["evidence"].strip()))):
                 raise ValueError("feature_leakage needs confirmed=true only with a flagged, evidenced leak")
+            if implementation_required:
+                check = answer.get("implementation_check")
+                if (not isinstance(check, dict) or
+                        check.get("status") not in {"verified", "contradicted", "unverified"} or
+                        not isinstance(check.get("evidence"), str) or not check["evidence"].strip() or
+                        not isinstance(check.get("changed_factors"), list) or any(
+                            not isinstance(factor, str) or not factor.strip()
+                            for factor in check["changed_factors"])):
+                    raise ValueError("implementation_check needs status, evidence and changed_factors")
             return answer
-        except ValueError:
+        except ValueError as error:
             if attempt:
                 raise
             messages = [*messages, {"role": "user", "content":
-                        "The previous response was invalid. Return exactly one complete JSON object with summary, recommendation, all three flag/evidence objects, and feature_leakage.confirmed (boolean)."}]
+                        f"The previous response was invalid: {error}. Return one complete JSON object following the analysis contract."}]
 
 
 def _review_reasons(prior: dict, report: dict, high: dict) -> list[str]:
@@ -55,7 +65,11 @@ def _review_reasons(prior: dict, report: dict, high: dict) -> list[str]:
             cost_unclear |= (policies[primary]["effects"][primary]["mean"] >
                              net_policy["effects"][primary]["mean"] and
                              net_policy["net"]["mean"] > policies[primary]["net"]["mean"])
-    return (["uplift_anomaly"] if anomaly else []) + \
+    implementation_issue = high.get("implementation_check", {}).get("status") == "contradicted"
+    implementation_issue |= report.get("runtime_diagnostics", {}).get(
+        "prediction_contract", {}).get("status") == "inconsistent"
+    return (["implementation_check"] if implementation_issue else []) + \
+           (["uplift_anomaly"] if anomaly else []) + \
            (["feature_leakage"] if high["feature_leakage"]["flag"] else []) + \
            (["cost_tradeoff_unclear"] if cost_unclear else [])
 
@@ -68,6 +82,7 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
     provider = provider or ApiProvider("https://api.deepseek.com", model, api_key or "")
     context = json.dumps({"before": prior, "after": revised}, ensure_ascii=False)
     candidate = Path(candidate_path).read_text()
+    implementation_required = "experiment_context" in revised
     instruction = (
         "Analyze an offline randomized coupon uplift experiment. Return JSON with "
         "summary, recommendation, and uplift_anomaly, feature_leakage, "
@@ -84,17 +99,44 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
         "Policy effects and costs are averaged over all eligible holdout users; "
         "fixed_send_cost is the assumed cost per selected treated user. "
         "Flag suspicion only with concrete evidence; state uncertainty explicitly."
+        " A paired policy-effect interval crossing zero is not a diagnosis of CATE model variance, "
+        "nor proof of equivalence. Different policies can have identical binary IPW means: at p=0.5 "
+        "the mean is twice the selected treated-minus-control positive count divided by N. "
+        "Different hashes and a nonzero paired standard error can coexist with that tie; "
+        "do not call it an evaluator/version anomaly without an additional contradiction."
     )
+    if implementation_required:
+        instruction += (
+            " Also return implementation_check {status: verified|contradicted|unverified, "
+            "evidence: string, changed_factors: [string]}. Independently compare the experiment "
+            "hypothesis, parent code, candidate_diff and runtime_diagnostics with the candidate. "
+            "Check the premise as well as the implementation: pandas get_dummies with columns=None "
+            "does not one-hot numeric DataFrame columns; use observed shapes and dtypes. "
+            "Distinguish preprocessing width (possibly excluding a bias column) from model width. "
+            "Check whether each claimed change really happened. Distinguish logit contrast from "
+            "sigmoid(logit1)-sigmoid(logit0), predicted CATE and a ranking score; inspect every "
+            "learned component and the exact return expression. A score gain cannot validate an "
+            "incorrect premise or output scale. Contradicted means concrete code/runtime evidence "
+            "refutes a claimed mechanism or semantics, and blocks promotion pending repair. "
+            "Unverified means evidence is missing, not that the method is invalid. Verified means "
+            "implementation agrees with the stated change on the available evidence, not that its "
+            "causal explanation or final improvement is proven. List actual joint changes in "
+            "encoding, estimator, network, loss, training and policy; do not infer isolation from "
+            "the proposal alone. Prioritize correcting a detected implementation error and a "
+            "small diagnostic/ablation using current data before speculative complexity or a "
+            "terminal request for already-known metadata concerns."
+        )
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": f"Reports:\n{context}\n\nCandidate code:\n{candidate}"}]
-    high = _ask(provider, provider.iteration_effort, messages)
+    high = _ask(provider, provider.iteration_effort, messages,
+                implementation_required=implementation_required)
     reasons = _review_reasons(prior, revised, high)
     maximum = None
     if reasons:
         maximum = _ask(provider, provider.review_effort, [
             {"role": "system", "content": instruction + " Independently audit the first analysis; confirm or refute each review trigger with evidence."},
             {"role": "user", "content": f"Reports:\n{context}\n\nCandidate code:\n{candidate}\n\nHigh analysis:\n{json.dumps(high, ensure_ascii=False)}\n\nReview triggers: {', '.join(reasons)}"},
-        ])
+        ], implementation_required=implementation_required)
     result = {"model": provider.model, "provider_url": provider.url,
               "initial_effort": provider.iteration_effort,
               "review_effort": provider.review_effort if maximum else None,
@@ -109,6 +151,10 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
         if flag["flag"]:
             status = ("已证实" if flag["confirmed"] else "风险待核验") if name == "feature_leakage" else "需复核"
         lines.append(f"- {name}：{status}；{flag.get('evidence', '')}")
+    if implementation_required:
+        check = (maximum or high)["implementation_check"]
+        lines.extend(["", f"实现核验：{check['status']}；{check['evidence']}",
+                      "实际改动项：" + ", ".join(check["changed_factors"])])
     lines.extend(["", f"## {provider.review_effort} 复核", ""])
     if maximum:
         lines.extend([f"触发项：{', '.join(reasons)}", "", maximum["summary"], "",

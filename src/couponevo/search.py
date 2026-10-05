@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import difflib
 import hashlib
 import json
 import re
@@ -14,8 +15,10 @@ from typing import Callable
 from .data import load_dataset
 from .evaluate import Budget
 from .experience import load_experience
+from .research_evidence import observed_change_audit, search_evidence
 from .harness import (build_harness_context, harness_identity, refresh_model_evo,
                       research_history, validate_model_evo_data_request,
+                      validate_model_evo_audit_recommendations,
                       validate_model_evo_reflection, validate_research,
                       validation_business_observations)
 
@@ -107,12 +110,15 @@ def _context(journal: dict, root: Path) -> dict:
                                    "score": entry.get("score"), "status": entry["status"],
                                    "report": entry.get("report"), "error": entry.get("error"),
                                    "analysis": entry.get("analysis"),
+                                   "eligibility": entry.get("eligibility"),
+                                   "research": entry.get("research"),
                                    "approach": entry.get("approach")}
     return {"dataset_sha256": journal["task"]["dataset"],
             "manifest_sha256": journal["task"]["manifest"],
             "objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
             "history": history, "available": available, "best_id": journal["best_id"],
             "experience": journal.get("experience", []),
+            "evidence": search_evidence(journal),
             "harness": journal.get("harness"),
             "research_history": research_history(journal["steps"]),
             "diagnoses": journal.get("diagnoses", []),
@@ -122,7 +128,7 @@ def _context(journal: dict, root: Path) -> dict:
 
 
 def _validate_proposal(proposal: dict, available: dict, harness: dict | None = None,
-                       steps: list[dict] | None = None) -> dict:
+                       steps: list[dict] | None = None, *, evidence: list[dict] | None = None) -> dict:
     if not isinstance(proposal, dict):
         raise ValueError("Agent proposal must be an object")
     action = proposal.get("action", "experiment")
@@ -138,7 +144,7 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
                              "definition, source, as_of, evidence, and validation_plan")
         if harness and harness.get("source") == "ModelEvoHarness":
             canonical_request = validate_model_evo_data_request(
-                request, harness["task_snapshot"], steps or [])
+                request, harness["task_snapshot"], steps or [], evidence=evidence)
         else:
             canonical_request = {key: request[key].strip() for key in fields}
         return {"action": "request_data", "reason": reason.strip(),
@@ -148,7 +154,11 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
         value = proposal.get(field)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"Agent {action} needs {field}")
-        return {"action": action, field: value.strip()}
+        result = {"action": action, field: value.strip()}
+        if action == "stop" and harness and harness.get("source") == "ModelEvoHarness":
+            result["audit_recommendations"] = validate_model_evo_audit_recommendations(
+                proposal.get("audit_recommendations", []), evidence=evidence)
+        return result
     if action != "experiment":
         raise ValueError("Agent action must be experiment, diagnose, request_data, or stop")
     operator = proposal.get("operator")
@@ -196,7 +206,7 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
                  "candidate_py": source.rstrip() + "\n", "feature_gaps_md": gaps.strip()}
     if harness and harness.get("source") == "ModelEvoHarness" and gaps.strip():
         validated["feature_request"] = validate_model_evo_data_request(
-            proposal.get("feature_request"), harness["task_snapshot"], steps or [])
+            proposal.get("feature_request"), harness["task_snapshot"], steps or [], evidence=evidence)
     if approach is not None:
         validated["approach"] = approach.strip()
     if "reference_reads" in proposal:
@@ -211,9 +221,10 @@ def _task(manifest_path: Path, budget: Budget, seed: int, initial_candidate: Pat
     data = load_dataset(manifest_path, strict=strict_data)
     framework = b"".join(Path(__file__).with_name(name).read_bytes()
                          for name in ("cli.py", "data.py", "evaluate.py", "sandbox.py",
-                                      "sandbox_worker.py", "experience.py"))
+                                      "sandbox_worker.py", "experience.py", "runtime_diagnostics.py"))
     agent_workflow = b"".join(Path(__file__).with_name(name).read_bytes()
-                              for name in ("agent.py", "analysis.py", "provider.py", "search.py", "harness.py"))
+                              for name in ("agent.py", "analysis.py", "provider.py", "search.py", "harness.py",
+                                           "research_evidence.py"))
     return {"dataset": data.source_sha256, "manifest": _sha(manifest_path.read_bytes()),
             "framework": _sha(framework), "initial_candidate": _sha(initial_candidate.read_bytes()),
             "agent_workflow": _sha(agent_workflow), "harness": harness_identity(harness_path),
@@ -309,11 +320,19 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                "report": unreflected.get("report"),
                                "error": unreflected.get("error"),
                                "analysis": unreflected.get("analysis"),
+                               "change_audit": unreflected.get("change_audit"),
                                "eligibility": unreflected.get("eligibility")}
                 if (journal.get("harness") or {}).get("source") == "ModelEvoHarness":
                     observation["harness_source"] = "ModelEvoHarness"
                     observation["business_observations"] = unreflected.get(
                         "business_observations", [])
+                    review = unreflected.get("analysis") or {}
+                    review = review.get("max") or review.get("high") or {}
+                    observation.update(evidence=search_evidence(journal),
+                                       task_snapshot=journal["harness"]["task_snapshot"],
+                                       trial_history=[{key: step[key] for key in ("id", "status", "research")
+                                                       if key in step} for step in journal["steps"]],
+                                       implementation_check=review.get("implementation_check"))
                 try:
                     reflection = reflector(observation)
                     if (not isinstance(reflection, dict) or
@@ -323,13 +342,20 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                                 not reflection[key].strip() for key in
                                 ("evidence", "lesson", "next_direction"))):
                         raise ValueError("Agent reflection needs verdict, evidence, lesson, and next_direction")
+                    if (observation["status"] == "failed" or observation.get("eligibility") in {
+                            "blocked_implementation", "blocked_feature_leakage"}) and reflection["verdict"] != "invalid":
+                        raise ValueError("failed or blocked experiments require an invalid reflection")
                     if observation.get("harness_source") == "ModelEvoHarness":
-                        validate_model_evo_reflection(reflection, observation)
+                        validate_model_evo_reflection(reflection, observation,
+                                                      evidence=observation["evidence"])
                     unreflected["reflection"] = {key: reflection[key] for key in
                                                  ("verdict", "evidence", "lesson", "next_direction")}
                     if observation.get("harness_source") == "ModelEvoHarness":
                         unreflected["reflection"]["technical_experience"] = reflection["technical_experience"]
                         unreflected["reflection"]["business_experience"] = reflection["business_experience"]
+                        for key in ("audit_recommendations", "future_feature_suggestions"):
+                            if key in reflection:
+                                unreflected["reflection"][key] = reflection[key]
                     unreflected.pop("reflection_error", None)
                     if unreflected.get("eligibility") == "pending_reflection":
                         if reflection["verdict"] == "invalid":
@@ -359,9 +385,11 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                 try:
                     raw = proposer(context)
                     proposal = _validate_proposal(raw, context["available"],
-                                                  journal.get("harness"), journal["steps"])
+                                                  journal.get("harness"), journal["steps"],
+                                                  evidence=context["evidence"])
                     if journal.get("harness") and proposal["action"] == "experiment" and not exhausted:
-                        proposal["research"] = validate_research(raw, journal["harness"])
+                        proposal["research"] = validate_research(
+                            raw, journal["harness"], evidence=context["evidence"])
                     if exhausted and proposal["action"] not in ("stop", "request_data"):
                         proposal = None
                         break
@@ -370,20 +398,34 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                         raise ValueError("diagnosis is unavailable until the next experiment")
                     break
                 except (ValueError, SyntaxError) as error:
+                    journal.setdefault("proposal_errors", []).append({
+                        "after_step": len(journal["steps"]), "attempt": attempt + 1,
+                        "budget_exhausted": exhausted, "error": str(error)[-2000:]})
+                    _save(journal_path, journal)
                     if attempt:
-                        raise
+                        if not exhausted:
+                            raise
+                        journal["budget_exhausted_decision"] = {
+                            "after_step": len(journal["steps"]),
+                            "reason": "invalid_terminal_proposal",
+                            "last_error": str(error)[-2000:]}
+                        proposal = None
+                        break
                     context = {**context, "proposal_error": str(error)}
             if _task(manifest_path, budget, seed, initial_candidate, objective, device,
                      strict_data, sandbox_image, experience_dir, harness_path) != task:
                 raise RuntimeError("search task or dataset changed during proposal")
             if proposal is None:
-                journal["budget_exhausted_decision"] = {"after_step": len(journal["steps"]),
-                                                        "reason": "no_terminal_action"}
+                if journal.get("budget_exhausted_decision", {}).get("after_step") != len(journal["steps"]):
+                    journal["budget_exhausted_decision"] = {
+                        "after_step": len(journal["steps"]), "reason": "no_terminal_action"}
                 _save(journal_path, journal)
                 break
             if proposal["action"] == "stop":
                 journal["stop"] = {"reason": proposal["reason"],
                                    "after_step": len(journal["steps"])}
+                if "audit_recommendations" in proposal:
+                    journal["stop"]["audit_recommendations"] = proposal["audit_recommendations"]
                 _save(journal_path, journal)
                 break
             if proposal["action"] == "request_data":
@@ -449,6 +491,9 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             _verify_candidates(journal, root)
             pending["score"] = _score(report, objective)
             pending["report"] = report
+            audit = observed_change_audit(parent["report"], report)
+            if audit:
+                pending["change_audit"] = audit
             if (journal.get("harness") or {}).get("source") == "ModelEvoHarness":
                 pending["business_observations"] = validation_business_observations(report)
             pending["status"] = "evaluated"
@@ -457,10 +502,24 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             pending["status"] = "failed"
             pending["error"] = str(error)[-2000:]
         if pending["status"] == "evaluated" and analyzer is not None:
+            prior_source = (root / parent["candidate"]).read_text()
+            candidate_source = candidate.read_text()
+            experiment_context = {
+                "hypothesis": pending["hypothesis"],
+                "research": pending.get("research"),
+                "evidence": search_evidence(journal),
+                "change_audit": pending.get("change_audit"),
+                "parent_id": parent["id"],
+                "parent_candidate_py": prior_source,
+                "candidate_diff": "".join(difflib.unified_diff(
+                    prior_source.splitlines(keepends=True), candidate_source.splitlines(keepends=True),
+                    fromfile="parent.py", tofile="candidate.py")),
+            }
             for attempt in range(2):
                 pending["analysis_attempts"] = attempt + 1
                 try:
-                    pending["analysis"] = analyzer(parent["report"], pending["report"], candidate,
+                    pending["analysis"] = analyzer(parent["report"],
+                                                   {**pending["report"], "experiment_context": experiment_context}, candidate,
                                                    root / "runs" / pending["report"]["run_id"])
                     pending.pop("analysis_error", None)
                     break
@@ -471,6 +530,13 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             review = review.get("max") or review.get("high") or {}
             if pending.get("analysis_error"):
                 pending["eligibility"] = "blocked_analysis_error"
+            elif (pending["report"].get("runtime_diagnostics", {}).get(
+                    "prediction_contract", {}).get("status") == "inconsistent" or
+                  (pending.get("research", {}).get("prediction_semantics") == "probability_difference" and
+                   pending["report"].get("runtime_diagnostics", {}).get(
+                       "prediction_contract", {}).get("status") != "consistent") or
+                  review.get("implementation_check", {}).get("status") == "contradicted"):
+                pending["eligibility"] = "blocked_implementation"
             elif review.get("feature_leakage", {}).get("confirmed") is True:
                 pending["eligibility"] = "blocked_feature_leakage"
             elif reflector is not None:

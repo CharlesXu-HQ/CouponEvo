@@ -1,4 +1,4 @@
-# ModelEvoHarness 接入与 GPU A/B 验证
+# ModelEvoHarness 接入与 GPU 验证
 
 ModelEvoHarness 是独立的跨场景模型迭代项目。CouponEvo 通过 `--harness model-evo` 读取其研究 catalog、判断方向与当前任务的适用性，并校验 Agent 的实验设计。训练、候选代码隔离执行、固定目标、预算、验证集和最终留出集仍由 CouponEvo 控制。仓库内的 [JSON 研究插件](harness.md) 是另一种可选入口。
 
@@ -19,7 +19,9 @@ CouponEvo 的 Gitlink 记录 submodule 的默认提交；新搜索会把本地�
 
 接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，模型框架是 `pytorch`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验。规范化的研究设计和外部包身份保存在 CouponEvo journal 中。Agent 上下文包含适用模型的本地 `model_api` 构造和调用签名。同时提供输出契约、宿主训练责任、已省略机制和通用探索指南。Agent 可以通过 `read_reference` 先读取完整模型模块和训练辅助代码，最多两轮读取；声明已收录 `method_id` 时会自动补读所需源码，再生成候选。真实源码哈希保存在每步 `reference_reads` 中，读取不占训练次数。ModelEvo 模式允许候选代码导入 catalog 声明的 PyTorch 参考模型模块及 `models.pytorch.training`。评估器仅将 submodule 中的 PyTorch 参考源码复制到临时目录，再以只读方式挂载到 Docker，并设置 `PYTHONPATH`；候选容器看不到 Harness 的 provider、engine、TensorFlow 代码或宿主机 API 密钥。其他 Harness 模块的导入会在候选校验时被拒绝。
 
-ModelEvo 模式把可用字段上的网络结构、损失、优化和采样实验放在缺失特征请求之前。实验依据型请求必须引用至少两个已评估且机制不同的试验 ID。若业务专家已能直接确认必要输入缺失，可在 manifest 中显式声明领域要求，允许 Agent 立即请求相应字段：
+ModelEvo 模式按观测到的问题与信息价值选择实验，不要求遍历模型目录。明确的实现错误优先修复或放弃相应配置；可用字段上的网络结构、损失、优化和采样均可成为研究方向。每个提议须提供 `research.evidence_ids`、计划的 `change_factors` 和 `prediction_semantics`（`probability_difference`、`direct_cate` 或 `ranking_score`）。前者需返回 `<outcome>_mu0`、`<outcome>_mu1` 和等于两者差值的 `<outcome>_uplift`；二元标签对应的两组潜在结果须在 [0,1] 内。检查只验证该数值契约，不证明概率校准。
+
+实验依据型请求必须引用至少两个已评估且机制不同的试验 ID，同时引用宿主标记为 `data_gap_candidate=true` 的观测证据。重复出现的 `declared_only` 元数据不能充当这一证据。当前通用评估器不会自动从指标未显著推导出特征缺失。字段时点等疑问可以放入 `audit_recommendations`，保留 `issue`、`evidence_ids`、`validation_plan`，不停止仍可开展的实验。若业务专家已能直接确认必要输入缺失，可在 manifest 中显式声明领域要求，允许 Agent 立即请求相应字段：
 
 ```json
 {

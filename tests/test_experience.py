@@ -69,6 +69,33 @@ class ExperienceTests(unittest.TestCase):
         self.assertEqual(lessons[0]["validation_delta"], None)
         self.assertNotIn("secret_test_value", json.dumps(lessons))
 
+    def test_contradicted_implementation_is_loaded_as_repair_evidence(self):
+        task = {"dataset": "v1", "manifest": "m1", "objective": "conversion",
+                "budget": {"kind": "count", "value": 0.2}, "seed": 42,
+                "framework": "e1", "agent_workflow": "a1", "strict_data": False,
+                "harness": {"source": "ModelEvoHarness"}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "finished"
+            path.mkdir()
+            check = {"status": "contradicted", "evidence": "Observed numeric input remained 7 columns"}
+            (path / "journal.json").write_text(json.dumps({
+                "task": task, "baseline": {"score": 0.01}, "stop": {"reason": "budget"},
+                "steps": [{"id": "step-001", "status": "evaluated", "operator": "improve",
+                           "hypothesis": "Correct 50000-column encoding", "score": 0.02,
+                           "eligibility": "blocked_implementation",
+                           "analysis": {"high": {"implementation_check": check}},
+                           "reflection": {"verdict": "inconclusive", "lesson": "WRONG_ENCODING_LESSON",
+                                          "technical_experience": {"lesson": "WRONG_ENCODING_LESSON"},
+                                          "business_experience": {"status": "not_observable", "reason": "No new business claim"}}}],
+            }))
+            lessons = load_experience(Path(directory), task)
+        self.assertEqual(len(lessons), 1)
+        self.assertIn('knowledge_status', lessons[0])
+        self.assertEqual(lessons[0]['knowledge_status'], 'contradicted')
+        self.assertIn('7 columns', lessons[0]['technical_experience']['evidence'])
+        self.assertNotIn('WRONG_ENCODING_LESSON', json.dumps(lessons))
+        self.assertIsNone(lessons[0]['validation_delta'])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,6 +61,31 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("Positive uplift", (self.root / "analysis.md").read_text())
         self.assertEqual(json.loads((self.root / "analysis.json").read_text())["model"], "deepseek-flash")
 
+    def test_experiment_analysis_requires_implementation_check_and_retries(self):
+        revised = {**self.report, "experiment_context": {
+            "hypothesis": "Mixed encoding improves uplift", "parent_candidate_py": "parent code",
+            "candidate_diff": "+ model change"}}
+        valid = {**self.high, "implementation_check": {
+            "status": "verified", "evidence": "Observed features match the proposed encoding",
+            "changed_factors": ["network"]}}
+        with patch("urllib.request.urlopen", side_effect=[FakeResponse(self.high), FakeResponse(valid)]) as call:
+            result = analyze_reports_deepseek(self.report, revised, candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(result['high']['implementation_check']['status'], 'verified')
+
+    def test_prediction_semantics_error_triggers_max_review(self):
+        revised = {**self.report, "experiment_context": {"hypothesis": "Probability uplift"}}
+        answer = {**self.high, "implementation_check": {
+            "status": "contradicted", "evidence": "BCE logit difference returned as probability difference",
+            "changed_factors": ["network", "loss"]}}
+        with patch("urllib.request.urlopen", return_value=FakeResponse(answer)) as call:
+            result = analyze_reports_deepseek(self.report, revised, candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
+        self.assertIn('implementation_check', result['review_reasons'])
+        self.assertEqual(result['max']['implementation_check']['status'], 'contradicted')
+
     def test_high_analysis_repairs_malformed_json_once(self):
         class BadResponse(FakeResponse):
             def read(self):

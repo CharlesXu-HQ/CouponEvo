@@ -46,6 +46,8 @@ class ModelEvoIntegrationTests(unittest.TestCase):
             "why_now": "The validation policy has room to improve", "data_rationale": "No new raw input is needed",
             "input_features": [], "comparison": "Compare with the same fixed-budget baseline",
             "falsification": "No policy value gain under the frozen validation split",
+            "evidence_ids": ["task.train_profile"], "change_factors": ["decision_rule"],
+            "prediction_semantics": "direct_cate",
             "alternatives": [{"direction": "Retune the predictor", "mechanism": "Change model depth",
                               "reason": "Does not isolate the policy rule"}],
         }
@@ -294,6 +296,43 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "absent"):
             validate(experimental, snapshot, trials)
 
+    def test_strict_request_needs_measured_gap_in_two_distinct_trials(self):
+        snapshot = self.context()["task_snapshot"]
+        steps = [{"id": "step-001", "status": "evaluated", "research": {"mechanism": "field cross"}},
+                 {"id": "step-002", "status": "evaluated", "research": {"mechanism": "weighted loss"}}]
+        request = {"name": "prior_coupon_use", "definition": "Prior coupon use count",
+                   "source": "coupon event log", "as_of": "before assignment",
+                   "evidence": "Candidate gap remains after two trials",
+                   "validation_plan": "Audit event time and rerun on a new dataset",
+                   "basis": "experimental_evidence", "trial_ids": ["step-001", "step-002"],
+                   "alternatives_considered": "Current feature crosses and reweighted loss",
+                   "evidence_ids": ["task.feature_timing"]}
+        declared = {"id": "task.feature_timing", "status": "declared", "scope": "task",
+                    "source": "dataset contract", "statement": "Pre-treatment timing is declared"}
+        with self.assertRaisesRegex(ValueError, "trial-specific measured gap evidence"):
+            harness_module.validate_model_evo_data_request(request, snapshot, steps,
+                                                            evidence=[declared])
+        observed = [{"id": f"step-00{i}.gap", "status": "observed", "scope": "trial",
+                     "trial_id": f"step-00{i}", "source": "host diagnostic",
+                     "statement": "Measured slice residual", "data_gap_candidate": True}
+                    for i in (1, 2)]
+        supported = {**request, "evidence_ids": [item["id"] for item in observed]}
+        self.assertEqual(harness_module.validate_model_evo_data_request(
+            supported, snapshot, steps, evidence=[declared, *observed]), supported)
+
+    def test_stop_keeps_nonblocking_audit_recommendation(self):
+        recommendation = {"issue": "Confirm feature timestamps", "evidence_ids": ["task.feature_timing"],
+                          "validation_plan": "Inspect assignment and measurement logs"}
+        with patch("couponevo.search.refresh_model_evo"), \
+                patch("couponevo.search._evaluate", return_value=self.report) as evaluate:
+            journal = run_search(**self.kwargs, max_steps=1, proposer=lambda _: {
+                "action": "stop", "reason": "Experiment budget reached",
+                "audit_recommendations": [recommendation]})
+        self.assertEqual(evaluate.call_count, 1)
+        self.assertEqual(journal["stop"]["audit_recommendations"], [recommendation])
+        self.assertNotIn("data_request", journal)
+        self.assertEqual(journal["steps"], [])
+
     def test_experiment_feature_gap_note_requires_a_validated_data_request(self):
         attempts = []
 
@@ -377,20 +416,22 @@ class ModelEvoIntegrationTests(unittest.TestCase):
 
     def test_external_validator_blocks_unavailable_family_but_accepts_novel_direction(self):
         context = self.context()
+        evidence = [{"id": "task.train_profile", "status": "observed", "scope": "task",
+                     "source": "training partition profile", "statement": "Recorded feature types"}]
         blocked = {**self.proposal, "research": {**self.research, "family_id": "sequence_ranking"}}
         with self.assertRaisesRegex(ValueError, "needs_data"):
-            validate_research(blocked, context)
-        canonical = validate_research(self.proposal, context)
+            validate_research(blocked, context, evidence=evidence)
+        canonical = validate_research(self.proposal, context, evidence=evidence)
         self.assertEqual(canonical["direction"], self.research["direction"])
         self.assertEqual(canonical["input_fields"], [])
         self.assertEqual(canonical["expected_result"], self.proposal["expected_result"])
         self.assertNotIn("input_features", canonical)
         self.assertNotIn("family_id", canonical)
         method = {**self.proposal, "research": {**self.research, "method_id": "fm"}}
-        self.assertEqual(validate_research(method, context)["method_id"], "fm")
+        self.assertEqual(validate_research(method, context, evidence=evidence)["method_id"], "fm")
         unavailable = {**self.proposal, "research": {**self.research, "method_id": "din"}}
         with self.assertRaisesRegex(ValueError, "needs_data"):
-            validate_research(unavailable, context)
+            validate_research(unavailable, context, evidence=evidence)
 
     def test_package_digests_isolate_resume_and_record_canonical_research(self):
         task = _task(self.manifest, self.kwargs["budget"], 7, self.seed, "active", "cpu", False,

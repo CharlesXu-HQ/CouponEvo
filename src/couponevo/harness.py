@@ -204,8 +204,26 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
     return context
 
 
+def _model_evo_steps(steps: list[dict]) -> list[dict]:
+    """Expose CouponEvo's recorded research through the core trial shape."""
+    converted = []
+    for step in steps:
+        item = dict(step)
+        proposal = dict(item.get("proposal") or {})
+        if "research" not in proposal:
+            research = item.get("research")
+            if research is None and isinstance(item.get("mechanism"), str):
+                research = {"mechanism": item["mechanism"]}
+            if research is not None:
+                proposal["research"] = research
+        item["proposal"] = proposal
+        converted.append(item)
+    return converted
+
+
 def validate_model_evo_data_request(request: dict, snapshot: dict,
-                                    steps: list[dict]) -> dict:
+                                    steps: list[dict], *,
+                                    evidence: list[dict] | None = None) -> dict:
     fields = ("name", "definition", "source", "as_of", "evidence", "validation_plan")
     if not isinstance(request, dict) or any(
             not isinstance(request.get(key), str) or not request[key].strip() for key in fields):
@@ -240,7 +258,29 @@ def validate_model_evo_data_request(request: dict, snapshot: dict,
         result.update(basis=basis, requirement_id=requirement_id)
     else:
         raise ValueError("feature_request.basis must be experimental_evidence or domain_requirement")
+    for key in ("alternatives_considered", "evidence_ids"):
+        if key in request:
+            result[key] = request[key]
+    if evidence is not None:
+        core_request = {key: result[key] for key in
+                        ("source", "as_of", "evidence", "validation_plan", "basis")}
+        core_request.update(fields=[result["name"]], reason=result["definition"])
+        for key in ("trial_ids", "requirement_id", "alternatives_considered", "evidence_ids"):
+            if key in result:
+                core_request[key] = result[key]
+        _model_evo_package().validate_data_request(
+            core_request, snapshot, _model_evo_steps(steps), evidence=evidence)
     return result
+
+
+def validate_model_evo_audit_recommendations(items: object, *,
+                                              evidence: list[dict] | None = None) -> list[dict]:
+    """Keep audit suggestions separate from blocking feature requests."""
+    if evidence is None:
+        if items == []:
+            return []
+        raise ValueError("audit recommendations need host evidence")
+    return _model_evo_package().validate_audit_recommendations(items, evidence=evidence)
 
 
 def validation_business_observations(report: dict | None) -> list[dict]:
@@ -276,12 +316,16 @@ def validation_business_observations(report: dict | None) -> list[dict]:
     return observations
 
 
-def validate_model_evo_reflection(reflection: dict, observation: dict) -> dict:
+def validate_model_evo_reflection(reflection: dict, observation: dict, *,
+                                   evidence: list[dict] | None = None) -> dict:
     technical = reflection.get("technical_experience")
     if not isinstance(technical, dict) or any(
             not isinstance(technical.get(key), str) or not technical[key].strip()
             for key in ("lesson", "evidence", "uncertainty", "next_test")):
         raise ValueError("technical_experience needs lesson, evidence, uncertainty, and next_test")
+    if (observation.get("eligibility") == "blocked_implementation" and
+            reflection.get("verdict") != "invalid"):
+        raise ValueError("blocked implementation needs an invalid verdict")
     business = reflection.get("business_experience")
     if not isinstance(business, dict):
         raise ValueError("business_experience must be an object")
@@ -298,18 +342,40 @@ def validate_model_evo_reflection(reflection: dict, observation: dict) -> dict:
             raise ValueError("business_experience.not_observable needs reason")
     else:
         raise ValueError("business_experience.status must be observed or not_observable")
+    if evidence is not None:
+        evaluation = {"business_observations": observation.get("business_observations", []),
+                      "implementation_check": (observation.get("implementation_check")
+                                               if isinstance(observation.get("implementation_check"), dict)
+                                               else {}),
+                      "change_audit": (observation.get("change_audit")
+                                       if isinstance(observation.get("change_audit"), dict)
+                                       else {})}
+        return _model_evo_package().validate_reflection(
+            reflection, evaluation, observation["task_snapshot"],
+            _model_evo_steps(observation.get("trial_history", [])), evidence=evidence)
     return reflection
 
 
-def validate_research(proposal: dict, harness: dict) -> dict:
+def validate_research(proposal: dict, harness: dict, *,
+                      evidence: list[dict] | None = None) -> dict:
     """Require a testable design, without enumerating allowed model families."""
     if harness.get("source") == "ModelEvoHarness":
         research = proposal.get("research")
         bridged = dict(research) if isinstance(research, dict) else {}
         bridged.setdefault("input_fields", bridged.get("input_features"))
         bridged.setdefault("expected_result", proposal.get("expected_result"))
-        return _model_evo_package().validate_research(
-            {**proposal, "research": bridged}, harness["task_snapshot"], harness["catalog"])
+        semantics = bridged.get("prediction_semantics")
+        if (semantics is not None or evidence is not None) and semantics not in (
+                "probability_difference", "direct_cate", "ranking_score"):
+            raise ValueError("research.prediction_semantics needs probability_difference, "
+                             "direct_cate, or ranking_score")
+        package = _model_evo_package()
+        args = ({**proposal, "research": bridged}, harness["task_snapshot"], harness["catalog"])
+        checked = (package.validate_research(*args, evidence=evidence) if evidence is not None
+                   else package.validate_research(*args))
+        if semantics is not None:
+            checked["prediction_semantics"] = semantics
+        return checked
     research = proposal.get("research")
     fields = ("direction", "mechanism", "why_now", "data_rationale", "comparison", "falsification")
     if not isinstance(research, dict) or any(

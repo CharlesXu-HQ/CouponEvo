@@ -51,12 +51,32 @@ def load_experience(directory: Path, task: dict, limit: int = 5) -> list[dict]:
                     lesson["source_trial"] = step["id"]
                     lesson["technical_experience"] = {
                         key: str(technical.get(key, ""))[:500]
-                        for key in ("lesson", "evidence", "uncertainty", "next_test")}
+                        for key in ("lesson", "evidence", "uncertainty", "next_test", "attribution")}
+                    lesson["audit_recommendations"] = reflection.get("audit_recommendations", [])
                     lesson["business_experience"] = {
                         key: str(business[key])[:500]
                         for key in (("status", "observation_id", "insight", "limitations")
                                     if business.get("status") == "observed" else ("status", "reason"))
                         if key in business}
+                review = step.get("analysis") or {}
+                review = review.get("max") or review.get("high") or {}
+                check = review.get("implementation_check") or {}
+                contract = (step.get("report") or {}).get("runtime_diagnostics", {}).get(
+                    "prediction_contract", {})
+                lesson["knowledge_status"] = check.get("status", "unverified")
+                if (step.get("eligibility") == "blocked_implementation" or
+                        check.get("status") == "contradicted" or contract.get("status") == "inconsistent"):
+                    evidence = str(check.get("evidence") or contract.get("evidence") or
+                                   "Implementation does not match the declared experiment")[:1000]
+                    repair = "Correct the recorded mismatch and verify runtime evidence before reusing this mechanism."
+                    technical = {"lesson": "Implementation contradicted; no mechanism conclusion is supported.",
+                                 "evidence": evidence, "uncertainty": "The original hypothesis remains untested.",
+                                 "next_test": repair, "attribution": "unverified"}
+                    lesson.update(knowledge_status="contradicted", validation_delta=None,
+                                  verdict="invalid", evidence=evidence, lesson=technical["lesson"],
+                                  next_direction=repair, technical_experience=technical)
+                    lesson["invalidated_claim"] = {key: lesson.pop(key) for key in
+                                                   ("hypothesis", "expected_result", "research", "approach")}
                 lessons.append(lesson)
                 if len(lessons) >= limit:
                     return lessons
