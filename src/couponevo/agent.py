@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from .harness import validate_model_evo_data_request, validate_model_evo_reflection
-from .provider import ApiProvider, request_json
+from .provider import ApiProvider, IncompleteResponseError, request_json
 
 
 def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_path: Path | None = None,
@@ -369,9 +369,11 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
         instruction += " " + observation.get("composition_instructions", "")
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps(observation, ensure_ascii=False)}]
-    for attempt in range(2):
+    max_tokens = 10000
+    for attempt in range(3):
         try:
-            answer = request_json(provider, provider.iteration_effort, messages, max_tokens=10000)
+            answer = request_json(provider, provider.iteration_effort, messages,
+                                  max_tokens=max_tokens, timeout=300 if max_tokens > 16000 else 180)
             if (answer.get("verdict") not in {"consistent", "inconsistent", "inconclusive", "invalid"} or
                     any(not isinstance(answer.get(key), str) or not answer[key].strip()
                         for key in ("evidence", "lesson", "next_direction"))):
@@ -383,8 +385,12 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
             if observation.get("harness_source") == "ModelEvoHarness":
                 validate_model_evo_reflection(answer, observation, evidence=observation.get("evidence"))
             return answer
+        except IncompleteResponseError as error:
+            if error.reason != "length" or attempt == 2:
+                raise
+            max_tokens = min(max_tokens * 2, 32768)
         except ValueError as error:
-            if attempt:
+            if attempt == 2:
                 raise
             messages.append({"role": "user", "content": f"Invalid reflection: {error}. Return corrected JSON."})
     raise RuntimeError("Agent reflection was unavailable")

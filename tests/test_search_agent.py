@@ -4,12 +4,13 @@ from unittest.mock import patch
 
 from couponevo.agent import (diagnose_search_state, propose_search_candidate,
                              reflect_search_step)
-from couponevo.provider import ApiProvider
+from couponevo.provider import ApiProvider, IncompleteResponseError
 
 
 class FakeResponse:
-    def __init__(self, answer):
+    def __init__(self, answer, finish_reason="stop"):
         self.answer = answer
+        self.finish_reason = finish_reason
 
     def __enter__(self):
         return self
@@ -18,7 +19,7 @@ class FakeResponse:
         return False
 
     def read(self):
-        return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+        return json.dumps({"choices": [{"finish_reason": self.finish_reason, "message": {
             "content": json.dumps(self.answer)}}]}).encode()
 
 
@@ -185,6 +186,46 @@ class SearchAgentTests(unittest.TestCase):
         self.assertIn("A smaller model", body["messages"][1]["content"])
         self.assertIn("validation", body["messages"][1]["content"])
         self.assertIn("inconclusive", body["messages"][0]["content"].lower())
+
+    def test_reflection_length_retry_preserves_json_and_schema_repair_budget(self):
+        class BadResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": '{"verdict":'}}]}).encode()
+
+        answer = {"verdict": "invalid", "evidence": "Candidate exceeded its budget",
+                  "lesson": "Repair the budget", "next_direction": "Debug allocation"}
+        observation = {"status": "failed", "error": "budget exceeded"}
+        for invalid in (BadResponse(answer), FakeResponse({**answer, "verdict": "consistent"})):
+            with self.subTest(invalid=type(invalid).__name__), patch("urllib.request.urlopen", side_effect=[
+                    FakeResponse(answer, "length"), invalid, FakeResponse(answer)]) as call:
+                self.assertEqual(reflect_search_step(self.provider, observation), answer)
+            payloads = [json.loads(item.args[0].data) for item in call.call_args_list]
+            self.assertEqual([item["max_tokens"] for item in payloads], [10000, 20000, 20000])
+            self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [180, 300, 300])
+            self.assertEqual([item["reasoning_effort"] for item in payloads], ["high"] * 3)
+            self.assertIn("Invalid reflection:", payloads[-1]["messages"][-1]["content"])
+
+    def test_reflection_consecutive_length_stops_after_three_attempts(self):
+        with patch("urllib.request.urlopen", side_effect=[FakeResponse({}, "length") for _ in range(3)]) as call:
+            with self.assertRaises(IncompleteResponseError) as caught:
+                reflect_search_step(self.provider, {"status": "evaluated"})
+        self.assertEqual(caught.exception.reason, "length")
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [10000, 20000, 32768])
+
+    def test_reflection_non_length_incomplete_response_does_not_retry(self):
+        with patch("urllib.request.urlopen", return_value=FakeResponse({}, "content_filter")) as call:
+            with self.assertRaises(IncompleteResponseError) as caught:
+                reflect_search_step(self.provider, {"status": "evaluated"})
+        self.assertEqual(caught.exception.reason, "content_filter")
+        self.assertEqual(call.call_count, 1)
+
+    def test_reflection_timeout_does_not_retry(self):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("provider timed out")) as call:
+            with self.assertRaisesRegex(TimeoutError, "provider timed out"):
+                reflect_search_step(self.provider, {"status": "evaluated"})
+        self.assertEqual(call.call_count, 1)
 
     def test_diagnosis_uses_only_search_context_and_question(self):
         answer = {"finding": "Cost rose", "evidence": "net delta below zero",
