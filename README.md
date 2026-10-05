@@ -96,6 +96,8 @@ With ModelEvoHarness, proposals record the estimator, representation backbone an
 
 Stable estimator/backbone IDs keep local edits in the same lineage even when descriptions change. Local proposals inherit omitted IDs from their parent; legacy records resolve compatibility IDs without rewriting history. Source selection uses these IDs, while implementation claims still require code and runtime review.
 
+Each new ModelEvo search also requires a horizontal-expansion assessment: use field semantics and a testable bottleneck to consider parallel instances of any suitable module, with explicit inputs, sharing and fusion. Optional manifest `feature_groups` describe existing fields without granting sequence capabilities. A deferred expansion keeps any existing branch groups recorded; branch and fusion experience remains conditional on the tested design. See the [parallel composition contract](docs/model-evo-harness.md#通用横向子网组合).
+
 ### Evidence before mechanism claims
 
 With ModelEvoHarness, research proposals cite host observations and explain why the next test is worth its budget. Runtime reports record executed preprocessing widths, tensor shapes, devices and losses. Analysis checks the hypothesis against the parent code, the candidate diff and these observations; a contradicted implementation cannot become the champion. Probability-difference proposals expose both potential-outcome predictions for numerical checks, while direct CATE and explicitly named ranking scores keep their own contracts.

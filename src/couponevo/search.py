@@ -216,7 +216,8 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
     allowed = {"__future__", "numpy", "pandas", "torch", "econml", "sklearn"}
     references = set()
     if harness and harness.get("source") == "ModelEvoHarness":
-        references.add("model_evo_harness.models.pytorch.training")
+        references.update({"model_evo_harness.models.pytorch.training",
+                           "model_evo_harness.models.pytorch.composition"})
         references.update(symbol.split(":", 1)[0] for item in
                           harness.get("catalog", {}).get("model_implementations", [])
                           if item.get("framework") == "pytorch"
@@ -236,7 +237,7 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
         guidance = "Allowed import roots: " + ", ".join(sorted(allowed)) + "."
         if references:
             guidance += (" Harness imports are limited to catalog-declared PyTorch model modules "
-                         "and model_evo_harness.models.pytorch.training.")
+                         "and model_evo_harness.models.pytorch.training / composition.")
         raise ValueError("Agent candidate imports unsupported modules: " +
                          ", ".join(sorted(unsupported)) + ". " + guidance)
     if not any(isinstance(node, ast.FunctionDef) and node.name == "fit_predict" for node in tree.body):

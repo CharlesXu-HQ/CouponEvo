@@ -54,6 +54,10 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                              "rationale": "Record the initial predictor and policy",
                              "data_fit": "Use existing scalar features",
                              "comparison_plan": "Frozen validation policy comparison",
+                             "horizontal_expansion": {"decision": "defer",
+                                 "rationale": "This trial isolates the decision rule with fixed predictions",
+                                 "comparison_plan": "Next compare parallel predictors with fixed policy and training",
+                                 "groups": []},
                              "components": [{"id": "predictor", "mechanism": "Separate arm regression",
                                              "code_sections": ["fit_predict"], "input_fields": [],
                                              "required_capabilities": []}], "inheritance": []},
@@ -153,6 +157,7 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         self.assertEqual(before["source"], "ModelEvoHarness")
         self.assertEqual(snapshot["framework"], "pytorch")
         self.assertTrue(snapshot["model_design_required"])
+        self.assertTrue(snapshot["horizontal_expansion_required"])
         self.assertEqual(snapshot["stage"], "policy")
         self.assertEqual(snapshot["fields"], ["x"])
         self.assertEqual(snapshot["objective"], {"name": "active", "direction": "max"})
@@ -189,6 +194,69 @@ class ModelEvoIntegrationTests(unittest.TestCase):
         self.spec["outcomes"]["visit"] = "y2"
         self.manifest.write_text(json.dumps(self.spec))
         self.assertIn("multiple_outcomes", self.context()["task_snapshot"]["capabilities"])
+
+    def test_declared_feature_groups_reach_snapshot_without_granting_capabilities(self):
+        before = self.context()["task_snapshot"]
+        self.spec["feature_groups"] = [{"id": " history ", "fields": ["x"],
+                                       "rationale": " Declared historical activity stream "}]
+        self.manifest.write_text(json.dumps(self.spec))
+        context = self.context()
+        snapshot = context["task_snapshot"]
+        self.assertEqual(snapshot["feature_groups"], [{"id": "history", "fields": ["x"],
+                         "rationale": "Declared historical activity stream"}])
+        self.assertEqual(snapshot["capabilities"], before["capabilities"])
+        self.assertNotEqual(snapshot["dataset_digest"], before["dataset_digest"])
+        methods = {item["method_id"]: item for item in context["method_applicability"]}
+        self.assertEqual(methods["din"]["status"], "needs_data")
+        self.assertEqual(json.loads(self.manifest.read_text())["feature_groups"], self.spec["feature_groups"])
+
+    def test_invalid_declared_feature_groups_fail_before_a_request_is_built(self):
+        valid = {"id": "history", "fields": ["x"], "rationale": "Recorded scalar activity"}
+        for groups in ([{**valid, "fields": ["invented"]}], [valid, valid],
+                       [{**valid, "rationale": " "}], {"history": ["x"]}):
+            with self.subTest(groups=groups):
+                self.spec["feature_groups"] = groups
+                self.manifest.write_text(json.dumps(self.spec))
+                with self.assertRaisesRegex(ValueError, "feature[_ ]group"):
+                    self.context()
+
+    def test_research_normalizes_parallel_instances_and_requires_an_expansion_decision(self):
+        proposal = copy.deepcopy(self.proposal)
+        design = proposal["research"]["model_design"]
+        design["horizontal_expansion"] = {
+            "decision": "expand", "rationale": " Compare complementary scalar transformations ",
+            "comparison_plan": " Freeze loss, split and training budget; ablate with sharing accounted for ",
+            "groups": [{"id": "views", "branch_ids": ["left", "right"], "fusion_id": "merge",
+                        "parameter_sharing": [{"component_ids": ["left", "right"],
+                            "code_sections": [" model.shared_projection "],
+                            "rationale": " Match the projection applied to both scalar views "}]}]}
+        design["components"] = [
+            {"id": name, "mechanism": "Scalar view" if name != "merge" else "Output concatenation",
+             "instance_path": f" model.{name} ", "output_contract": " Tensor[batch, 8] ",
+             "code_sections": ["Parallel.forward"], "input_fields": ["x"],
+             "required_capabilities": ["tabular_features"],
+             **({"reference_method_id": "fm"} if name != "merge" else {})}
+            for name in ("left", "right", "merge")]
+        original = copy.deepcopy(proposal)
+        context = self.context()
+        evidence = [{"id": "task.train_profile", "status": "observed", "scope": "task",
+                     "source": "training partition", "statement": "Observed scalar input x"}]
+        checked = validate_research(proposal, context, evidence=evidence)
+        normalized = checked["model_design"]
+        self.assertEqual(normalized["horizontal_expansion"]["decision"], "expand")
+        self.assertEqual(normalized["horizontal_expansion"]["groups"][0]["parameter_sharing"], [{
+            "component_ids": ["left", "right"], "code_sections": ["model.shared_projection"],
+            "rationale": "Match the projection applied to both scalar views"}])
+        self.assertEqual([item["instance_path"] for item in normalized["components"]],
+                         ["model.left", "model.right", "model.merge"])
+        self.assertEqual([item["output_contract"] for item in normalized["components"]],
+                         ["Tensor[batch, 8]"] * 3)
+        self.assertEqual([item["reference_method_id"] for item in normalized["components"][:2]],
+                         ["fm", "fm"])
+        self.assertEqual(proposal, original)
+        del proposal["research"]["model_design"]["horizontal_expansion"]
+        with self.assertRaisesRegex(ValueError, "horizontal_expansion"):
+            validate_research(proposal, context, evidence=evidence)
 
     def test_candidate_import_allowlist_uses_declared_pytorch_modules(self):
         harness = {"source": "ModelEvoHarness", "task_snapshot": {"fields": ["x"]},

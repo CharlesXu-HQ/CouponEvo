@@ -17,7 +17,9 @@ uv pip install --python .venv/bin/python -e ./third_party/model-evo-harness
 
 CouponEvo 的 Gitlink 记录 submodule 的默认提交；新搜索会把本地检出推进到最新 `main`。如需运行前查看远端版本，也可手动执行 `git submodule update --init --remote third_party/model-evo-harness`，但新搜索不依赖这一步。检查 submodule 工作区无未提交修改，确保记录的提交与运行代码一致。同一次搜索的 `search`、`--resume` 和 `finalize` 都必须带 `--harness model-evo`。`--resume` 和 `finalize` 不更新 submodule；其提交须与搜索记录相同。CouponEvo 将源码提交、包实现摘要和 catalog 摘要写入任务身份；版本变化会拒绝续跑，也不会复用旧版本经验。省略该参数就是原有搜索；`--harness harnesses/coupon-research.json` 仍使用仓库内 JSON 指南。
 
-接入只向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 已证明的数据契约。Starbucks 任务阶段是 `policy`，模型框架是 `pytorch`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验。规范化的研究设计和外部包身份保存在 CouponEvo journal 中。Agent 上下文包含适用模型的本地 `model_api` 构造和调用签名。同时提供输出契约、宿主训练责任、已省略机制和通用探索指南。Agent 可以通过 `read_reference` 先读取完整模型模块和训练辅助代码，最多两轮读取；声明已收录 `method_id` 时会自动补读所需源码，再生成候选。真实源码哈希保存在每步 `reference_reads` 中，读取不占训练次数。ModelEvo 模式允许候选代码导入 catalog 声明的 PyTorch 参考模型模块及 `models.pytorch.training`。评估器仅将 submodule 中的 PyTorch 参考源码复制到临时目录，再以只读方式挂载到 Docker，并设置 `PYTHONPATH`；候选容器看不到 Harness 的 provider、engine、TensorFlow 代码或宿主机 API 密钥。其他 Harness 模块的导入会在候选校验时被拒绝。
+接入向 Agent 提供训练分区的字段类型、基数和缺失比例，以及 manifest 的契约与声明；声明性元数据不自动成为已验证能力。Starbucks 任务阶段是 `policy`，模型框架是 `pytorch`，原始输入只有 `V1` 至 `V7`；处理分配概率有来源说明。匿名静态字段不能被解释为行为序列、物品目录或场景上下文。已知研究家族需满足 catalog 的阶段和能力条件；Agent 可提出 catalog 以外的新方向，但必须用当前真实输入完成可证伪实验。规范化的研究设计和外部包身份保存在 CouponEvo journal 中。Agent 上下文包含适用模型的本地 `model_api` 构造和调用签名，以及输出契约、宿主训练责任、已省略机制和通用探索指南。
+
+Agent 可以通过 `read_reference` 先读取完整模型模块、训练辅助代码，以及 `include_composition=true` 指定的通用组合源码，最多两轮读取；声明已收录 `method_id` 或非空横向分支组时，会自动补读相应未读源码，再生成候选。真实源码哈希保存在每步 `reference_reads` 中，读取不占训练次数。ModelEvo 模式允许候选代码导入 catalog 声明的 PyTorch 参考模型模块，以及 `model_evo_harness.models.pytorch.training`、`model_evo_harness.models.pytorch.composition`。评估器仅将 submodule 中的 PyTorch 参考源码复制到临时目录，再以只读方式挂载到 Docker，并设置 `PYTHONPATH`；候选容器看不到 Harness 的 provider、engine、TensorFlow 代码或宿主机 API 密钥。其他 Harness 模块的导入会在候选校验时被拒绝。独立 Harness 提供原生 PyTorch 和 TensorFlow 两份组合实现，CouponEvo 候选仍使用既定 PyTorch 契约。
 
 ModelEvo 模式按观测到的问题与信息价值选择实验，不要求遍历模型目录。明确的实现错误优先修复或放弃相应配置；可用字段上的网络结构、损失、优化和采样均可成为研究方向。每个提议须提供 `research.evidence_ids`、计划的 `change_factors` 和 `prediction_semantics`（`probability_difference`、`direct_cate` 或 `ranking_score`）。前者需返回 `<outcome>_mu0`、`<outcome>_mu1` 和等于两者差值的 `<outcome>_uplift`；二元标签对应的两组潜在结果须在 [0,1] 内。检查只验证该数值契约，不证明概率校准。
 
@@ -40,7 +42,7 @@ ModelEvo 模式按观测到的问题与信息价值选择实验，不要求遍�
 
 ## backbone 内部改造与选择性迁移
 
-新建 ModelEvo 搜索会启用 `model_design_required`。`research.model_design` 使用稳定的 `estimator_id`、`backbone_id` 标识模型组合；`estimator`（如 T/S/DR 的估计方式）和 `backbone`（表征/预测网络）用于描述当前实现。它还记录 `change_scope`、`parent_trial_id`、数据适配理由、对照计划以及完整 `components`。网络交叉、head、loss、采样、优化等都可以作为局部组件，这些例子不是可选方向的封闭枚举。
+新建 ModelEvo 搜索会启用 `model_design_required` 和 `horizontal_expansion_required`。`research.model_design` 使用稳定的 `estimator_id`、`backbone_id` 标识模型组合；`estimator`（如 T/S/DR 的估计方式）和 `backbone`（表征/预测网络）用于描述当前实现。它还记录 `change_scope`、`parent_trial_id`、数据适配理由、对照计划以及完整 `components`。网络交叉、head、loss、采样、优化等都可以作为局部组件，这些例子不是可选方向的封闭枚举。
 
 `local` 改造可以更新描述，例如记录删除一个残差分支；省略 ID 时由宿主继承父 ID，显式提交不同 ID 则不能声明为 `local`。切换模型身份使用 `switch`，仍须逐项处理父组件。旧记录缺少 ID 时，由 Harness 根据原描述确定性生成兼容 ID；读取上下文会在 `available.<trial>.model_identity` 展示解析结果，并按 ID 选择不同模型的代表源码，不改写历史 journal。稳定 ID 是谱系标识，实际模型、组件及其训练行为仍需核对代码和运行证据。
 
@@ -63,11 +65,41 @@ Agent 上下文除了原有 seed、最佳/最近候选，最多额外提供三�
 
 独立协议详见 [ModelEvoHarness 组件化迭代](../third_party/model-evo-harness/docs/compositional-evolution.md)。本次契约与接入测试不等同于新一轮 GPU 效果实验，也不证明这类迁移必然提高指标。
 
-### 本轮验证边界（2026-10-05）
+## 通用横向子网组合
+
+每轮主动评估任意适用模块的并行实例，而不局限于某个模型或只调宽度、切换模型名称。依据真实字段语义、同一事件的对齐属性与不同输入流、以及可测瓶颈决定是否拆分；同一组字段的互补计算也可作为受控假设。分支类型、数量和候选自写的融合方式不封闭枚举。
+
+manifest 可选声明 `feature_groups`，宿主调用 `validate_feature_groups(groups, fields)` 后放入任务快照。以下仅为 manifest 片段，字段须已存在于完整 manifest 的 `features` 中；不能将它直接套到缺少这些字段的数据集：
+
+```json
+{
+  "features": ["pre_visits", "pre_spend"],
+  "feature_groups": [
+    {"id": "activity", "fields": ["pre_visits"], "rationale": "干预前历史访问次数"},
+    {"id": "value", "fields": ["pre_spend"], "rationale": "干预前历史消费金额"}
+  ]
+}
+```
+
+分组 ID 须唯一，字段列表非空且为实际字段子集，`rationale` 非空。分组只声明语义，不证明序列顺序、同事件对齐、时间截断或新的 capability；manifest 已参与任务摘要，修改分组须新建搜索。
+
+`model_design.horizontal_expansion` 包含 `decision`、具体 `rationale`、下一对照 `comparison_plan` 和 `groups`。`expand` 至少有一组；`defer` 说明本轮优先其他实验的具体依据，仍保留当前候选已有的所有分支组；`not_applicable` 使用空组并解释依据和下一对照。仅修改 loss 不能省略仍在执行的分支图。旧快照未启用新 flag 时可省略该字段，历史提案不补写；新的协议与版本不能静默用于续跑旧任务。
+
+每组用 `branch_ids` 指向至少两个组件，用不同的 `fusion_id` 指向融合组件，并以 `parameter_sharing` 声明共享成员、实际共享对象的 `code_sections` 和理由。每个分支和融合组件另有唯一的 `instance_path`、实际 `input_fields`、包含 `forward`/`call` 入口的 `code_sections` 和非空 `output_contract`。多个实例可以引用同一 method；共享对象通过不同别名路径标识，独立参数使用空共享列表。图必须无环。完整示例与双框架原生 API 见 [Harness 横向组合契约](../third_party/model-evo-harness/docs/horizontal-composition.md)。
+
+`retain` 还核对组件在图中的角色、同组分支集合、融合路径和共享成员/源码位置。校验按实际实例路径比较，忽略组名、ID 文本和理由措辞；仅重命名不会误判。改变连线、共享关系或删除组后，仍保留的受影响组件须用 `adapt` 或 `retest`，真正移除的组件用 `drop`。`defer` 保留相同图时可继续声明 `retain`。
+
+声明图不证明执行。分析须结合父/当前源码和运行证据核对实例输入、前向调用、输出融合、共享对象及 optimizer 注册；只有存在测量证据时才能确认梯度路径。对照应保持训练条件，或明确列出联合变化。共享权重重训会耦合分支消融，单分支代码改动不能独自证明隔离归因。每个分支和融合均进入既有 `component_assessments`，经验保留输入、对齐、共享、融合条件及下一对照。
+
+双框架参考实现的执行范围与限制见 [GPU 契约验证记录](../third_party/model-evo-harness/docs/research/horizontal-composition-validation-2026-10-05.md)。该记录区分张量/API 执行检查、模拟宿主编排和真实业务模型研究，不据此宣称 LLM 多轮行为或指标改善。
+
+本次横向组合验证：Harness 协议与来源读取回归 **113 项通过**；CouponEvo 使用实际 submodule 路径运行完整回归，**235 项执行、234 通过、1 项本机 CUDA 跳过**。RTX 5090 上另行执行 PyTorch 4 项、TensorFlow 5 项张量测试，全部通过；这 9 项检查分支贡献、梯度、共享参数与融合等行为，没有运行新的业务数据效果实验。
+
+### 既有组件化协议验证（2026-10-05）
 
 独立 Harness 的组件协议、原始 catalog/engine/provider/reference 测试共 **82 项通过**。CouponEvo 最终完整测试 **197 项执行、196 通过、1 项本地 CUDA 跳过**；四轮编排测试使用模拟 provider/evaluator，核对了 `initialize → local → local → switch`、选择性迁移、实际父代码绑定、组件反思和同任务经验。新增 `composition.py` 单模块 mypy 检查通过；对 catalog 的扩大类型检查仍发现三个可在修改前复现的存量诊断，未把这称为全仓类型检查通过。
 
-本轮没有新增真实 DeepSeek/GPU 模型搜索。这里确认的是契约、参考源码读取与接入逻辑；真实 Agent 是否持续优先内部改造、迁移后指标是否改善，需要后续在固定预算下实测。
+该次组件化协议验证没有新增真实 DeepSeek/GPU 模型搜索。这里确认的是契约、参考源码读取与接入逻辑；真实 Agent 是否持续优先内部改造、迁移后指标是否改善，需要后续在固定预算下实测。
 
 ## GPU A/B 复现实验
 

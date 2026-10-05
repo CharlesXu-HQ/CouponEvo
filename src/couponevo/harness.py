@@ -163,6 +163,7 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
                                            str(seed)).encode()).hexdigest(),
         "stage": "policy", "framework": "pytorch", "fields": list(dataset.features),
         "model_design_required": True,
+        "horizontal_expansion_required": True,
         "capabilities": capabilities,
         "objective": {"name": objective, "direction": "max"},
         "evaluation_protocol": {
@@ -174,6 +175,9 @@ def build_harness_context(path: Path, manifest: Path, seed: int, strict: bool,
             "feature_timing": dataset.validation["feature_timing"],
         },
     }
+    if "feature_groups" in dataset.manifest:
+        snapshot["feature_groups"] = package.validate_feature_groups(
+            dataset.manifest["feature_groups"], snapshot["fields"])
     requirements = dataset.manifest.get("domain_requirements", [])
     if not isinstance(requirements, list) or any(
             not isinstance(item, dict) or

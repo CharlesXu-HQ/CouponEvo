@@ -89,6 +89,46 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn('implementation_check', result['review_reasons'])
         self.assertEqual(result['max']['implementation_check']['status'], 'contradicted')
 
+    def test_parallel_review_receives_source_and_runtime_then_preserves_evidence_status(self):
+        graph = {"decision": "expand", "rationale": "Compare complementary scalar views",
+                 "comparison_plan": "Ablate branches with matched training",
+                 "groups": [{"id": "views", "branch_ids": ["left", "right"],
+                             "fusion_id": "merge", "parameter_sharing": [{
+                                 "component_ids": ["left", "right"],
+                                 "code_sections": ["model.shared"],
+                                 "rationale": "Common scalar projection"}]}]}
+        components = [{"id": name, "instance_path": f"model.{name}",
+                       "input_fields": ["pre_sessions"], "code_sections": ["Parallel.forward"],
+                       "output_contract": "Tensor[batch, 8]"}
+                      for name in ("left", "right", "merge")]
+        revised = {**self.report, "experiment_context": {
+            "research": {"model_design": {"components": components, "horizontal_expansion": graph}},
+            "parent_candidate_py": "class Parent: pass", "candidate_diff": "+ self.right = View()"},
+            "runtime_diagnostics": {"input_shape": [60, 1]}}
+        self.candidate.write_text("class Parallel:\n    def forward(self, x):\n        return self.left(x)\n")
+        for status, evidence in (
+                ("contradicted", "Source forward returns only left; right and merge never execute"),
+                ("unverified", "Runtime provides no backward-gradient or shared-object evidence")):
+            with self.subTest(status=status):
+                answer = {**self.high, "implementation_check": {
+                    "status": status, "evidence": evidence, "changed_factors": ["network"]}}
+                with patch("urllib.request.urlopen", return_value=FakeResponse(answer)) as call:
+                    result = analyze_reports_deepseek(self.report, revised, candidate_path=self.candidate,
+                                                      output_dir=self.root, api_key="test-key")
+                self.assertEqual(call.call_count, 2 if status == "contradicted" else 1)
+                for item in call.call_args_list:
+                    content = json.loads(item.args[0].data)["messages"][1]["content"]
+                    reports, code = content.removeprefix("Reports:\n").split("\n\nCandidate code:\n", 1)
+                    supplied = json.loads(reports)["after"]
+                    self.assertEqual(supplied["experiment_context"], revised["experiment_context"])
+                    self.assertEqual(supplied["runtime_diagnostics"], {"input_shape": [60, 1]})
+                    self.assertTrue(code.startswith(self.candidate.read_text()))
+                self.assertEqual(result["review_reasons"],
+                                 ["implementation_check"] if status == "contradicted" else [])
+                saved = json.loads((self.root / "analysis.json").read_text())
+                self.assertEqual((saved["max"] or saved["high"])["implementation_check"],
+                                 answer["implementation_check"])
+
     def test_high_analysis_repairs_malformed_json_once(self):
         class BadResponse(FakeResponse):
             def read(self):

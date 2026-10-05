@@ -149,6 +149,28 @@ class SearchAgentTests(unittest.TestCase):
         self.assertIn("class FM", second)
         self.assertIn("models/pytorch/architectures.py", result["reference_reads"])
 
+    def test_model_evo_request_keeps_field_groups_and_parallel_design_response(self):
+        snapshot = {"fields": ["past_visits", "past_spend"], "framework": "pytorch",
+                    "horizontal_expansion_required": True,
+                    "capabilities": ["tabular_features"],
+                    "feature_groups": [{"id": "activity", "fields": ["past_visits"],
+                                        "rationale": "Recorded activity count"},
+                                       {"id": "value", "fields": ["past_spend"],
+                                        "rationale": "Recorded historical spending"}]}
+        self.context["harness"] = {"source": "ModelEvoHarness", "task_snapshot": snapshot}
+        expansion = {"decision": "expand", "rationale": "Compare complementary scalar signals",
+                     "comparison_plan": "Fixed-budget comparison with each branch removed",
+                     "groups": [{"id": "views", "branch_ids": ["activity", "value"],
+                                 "fusion_id": "fusion", "parameter_sharing": []}]}
+        answer = {**self.answer, "research": {"model_design": {"horizontal_expansion": expansion}}}
+        with patch("urllib.request.urlopen", return_value=FakeResponse(answer)) as call:
+            result = propose_search_candidate(self.provider, self.context)
+        request = json.loads(call.call_args.args[0].data)
+        sent = json.loads(request["messages"][1]["content"])
+        self.assertEqual(sent["harness"]["task_snapshot"], snapshot)
+        self.assertEqual(result["research"]["model_design"]["horizontal_expansion"], expansion)
+        self.assertEqual(call.call_count, 1)
+
     def test_model_evo_contract_retry_preserves_source_reads(self):
         from couponevo.harness import _model_evo_package
         package = _model_evo_package()
