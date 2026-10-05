@@ -14,7 +14,7 @@ FLAGS = ("uplift_anomaly", "feature_leakage", "cost_tradeoff_unclear")
 def _ask(provider: ApiProvider, effort: str, messages: list[dict], *,
          implementation_required: bool = False) -> dict:
     max_tokens = 10000 if effort == "high" else 16000
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             answer = request_json(provider, effort, messages,
                                   max_tokens=max_tokens, timeout=300 if max_tokens > 16000 else 180)
@@ -40,11 +40,11 @@ def _ask(provider: ApiProvider, effort: str, messages: list[dict], *,
                     raise ValueError("implementation_check needs status, evidence and changed_factors")
             return answer
         except IncompleteResponseError as error:
-            if error.reason != "length" or attempt:
+            if error.reason != "length" or attempt == 2:
                 raise
             max_tokens = min(max_tokens * 2, 32768)
         except ValueError as error:
-            if attempt:
+            if attempt == 2:
                 raise
             messages = [*messages, {"role": "user", "content":
                         f"The previous response was invalid: {error}. Return one complete JSON object following the analysis contract."}]

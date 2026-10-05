@@ -130,16 +130,33 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual([item["reasoning_effort"] for item in payloads], ["high", "max", "max"])
         self.assertIsNotNone(result["max"])
 
-    def test_consecutive_length_stops_after_two_attempts(self):
+    def test_length_retry_keeps_one_attempt_for_json_repair(self):
+        class BadResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": '{"summary":'}}]}).encode()
+
         with patch("urllib.request.urlopen", side_effect=[
-                FakeResponse(self.high, "length"), FakeResponse(self.high, "length")]) as call:
+                FakeResponse(self.high, "length"), BadResponse(self.high), FakeResponse(self.high)]) as call:
+            result = analyze_reports_deepseek(self.report, self.report,
+                                              candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(result["high"]["summary"], self.high["summary"])
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [10000, 20000, 20000])
+
+    def test_consecutive_length_stops_after_three_attempts(self):
+        with patch("urllib.request.urlopen", side_effect=[
+                FakeResponse(self.high, "length"), FakeResponse(self.high, "length"),
+                FakeResponse(self.high, "length")]) as call:
             with self.assertRaises(RuntimeError) as captured:
                 analyze_reports_deepseek(self.report, self.report,
                                          candidate_path=self.candidate,
                                          output_dir=self.root, api_key="test-key")
         self.assertEqual(getattr(captured.exception, "reason", None), "length")
         self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
-                          for item in call.call_args_list], [10000, 20000])
+                          for item in call.call_args_list], [10000, 20000, 32768])
 
     def test_non_length_incomplete_response_does_not_retry(self):
         with patch("urllib.request.urlopen", return_value=FakeResponse(self.high, "content_filter")) as call:
