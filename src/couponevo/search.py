@@ -85,7 +85,7 @@ def _evaluate(manifest: Path, budget: Budget, seed: int, output: Path, candidate
     return json.loads(report_path.read_text())
 
 
-def _context(journal: dict, root: Path) -> dict:
+def _context(journal: dict, root: Path, *, budget_exhausted: bool = False) -> dict:
     history = [{"id": "seed", "status": "evaluated", "score": journal["baseline"]["score"]}]
     history.extend({key: step.get(key) for key in ("id", "status", "operator", "parent_ids",
                                                    "hypothesis", "approach", "research", "expected_result", "score", "error",
@@ -130,7 +130,7 @@ def _context(journal: dict, root: Path) -> dict:
                                    "eligibility": entry.get("eligibility"),
                                    "research": entry.get("research"),
                                    "approach": entry.get("approach")}
-    return {"dataset_sha256": journal["task"]["dataset"],
+    context = {"dataset_sha256": journal["task"]["dataset"],
             "manifest_sha256": journal["task"]["manifest"],
             "objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
             "history": history, "available": available, "best_id": journal["best_id"],
@@ -142,6 +142,13 @@ def _context(journal: dict, root: Path) -> dict:
             "diagnostic_available": not any(
                 item["after_step"] == len(journal["steps"])
                 for item in journal.get("diagnoses", []))}
+    proposal_errors = [error for error in journal.get("proposal_errors", [])
+                       if error["after_step"] == len(journal["steps"]) and
+                       error.get("budget_exhausted", False) == budget_exhausted][-2:]
+    if proposal_errors:
+        context.update(proposal_errors=proposal_errors,
+                       proposal_error=proposal_errors[-1]["error"])
+    return context
 
 
 def _validate_proposal(proposal: dict, available: dict, harness: dict | None = None,
@@ -207,13 +214,22 @@ def _validate_proposal(proposal: dict, available: dict, harness: dict | None = N
                           for symbol in [item.get("symbol", "")]
                           if symbol.startswith("model_evo_harness.models.pytorch.") and
                           symbol.count(".") == 3)
+    unsupported = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import) and any(alias.name.split(".")[0] not in allowed and
-                                                alias.name not in references for alias in node.names):
-            raise ValueError("Agent candidate imports an unsupported module")
+        if isinstance(node, ast.Import):
+            unsupported.update(alias.name for alias in node.names
+                               if alias.name.split(".")[0] not in allowed and
+                               alias.name not in references)
         if isinstance(node, ast.ImportFrom) and (node.level or
                 ((node.module or "").split(".")[0] not in allowed and node.module not in references)):
-            raise ValueError("Agent candidate imports an unsupported module")
+            unsupported.add("." * node.level + (node.module or ""))
+    if unsupported:
+        guidance = "Allowed import roots: " + ", ".join(sorted(allowed)) + "."
+        if references:
+            guidance += (" Harness imports are limited to catalog-declared PyTorch model modules "
+                         "and model_evo_harness.models.pytorch.training.")
+        raise ValueError("Agent candidate imports unsupported modules: " +
+                         ", ".join(sorted(unsupported)) + ". " + guidance)
     if not any(isinstance(node, ast.FunctionDef) and node.name == "fit_predict" for node in tree.body):
         raise ValueError("Agent candidate is missing fit_predict")
     if operator != "draft" and source == available[parents[0]]["candidate_py"]:
@@ -397,7 +413,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
             if exhausted and (reflector is None or
                               journal.get("budget_exhausted_decision", {}).get("after_step") == len(journal["steps"])):
                 break
-            context = _context(journal, root)
+            context = _context(journal, root, budget_exhausted=exhausted)
             if exhausted:
                 context["experiment_budget_exhausted"] = True
             proposal: dict | None = None
@@ -432,7 +448,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                             "last_error": str(error)[-2000:]}
                         proposal = None
                         break
-                    context = {**context, "proposal_error": str(error)}
+                    context = {**context, **_context(journal, root, budget_exhausted=exhausted)}
             if _task(manifest_path, budget, seed, initial_candidate, objective, device,
                      strict_data, sandbox_image, experience_dir, harness_path) != task:
                 raise RuntimeError("search task or dataset changed during proposal")

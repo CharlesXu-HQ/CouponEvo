@@ -179,6 +179,69 @@ class SearchTests(unittest.TestCase):
         self.assertIn("proposal_error", contexts[1])
         self.assertEqual(result["steps"][0]["status"], "evaluated")
 
+    def test_unsupported_import_error_names_modules_and_allowed_roots(self):
+        proposal = {"operator": "draft", "parent_ids": [], "hypothesis": "new candidate",
+                    "candidate_py": "import copy\nfrom typing import Any\nfrom . import helper\n"
+                                    "def fit_predict(*args):\n    pass\n"}
+        with self.assertRaises(ValueError) as caught:
+            _validate_proposal(proposal, {})
+        message = str(caught.exception)
+        self.assertIn("unsupported modules: ., copy, typing", message)
+        self.assertIn("Allowed import roots: __future__, econml, numpy, pandas, sklearn, torch", message)
+
+    def test_resume_keeps_only_recent_current_stage_proposal_errors(self):
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        contexts = []
+
+        def repair(context):
+            contexts.append(context)
+            if len(contexts) == 1:
+                self.assertEqual(len(context["proposal_errors"]), 2)
+                self.assertIn("os", context["proposal_errors"][0]["error"])
+                self.assertIn("pathlib", context["proposal_errors"][1]["error"])
+                self.assertEqual(context["proposal_error"], context["proposal_errors"][-1]["error"])
+                return {"operator": "draft", "parent_ids": [], "hypothesis": "repair imports",
+                        "candidate_py": self.seed.read_text() + "\n# repaired\n"}
+            self.assertNotIn("proposal_error", context)
+            self.assertNotIn("proposal_errors", context)
+            return {"action": "stop", "reason": "Repair evaluated"}
+
+        with patch("couponevo.search._evaluate", return_value=report) as evaluate:
+            for index, modules in enumerate((("copy", "typing"), ("os", "pathlib"))):
+                imports = iter(modules)
+                with self.assertRaisesRegex(ValueError, "unsupported module"):
+                    run_search(**self.kwargs, max_steps=2, resume=bool(index),
+                               proposer=lambda _: {
+                                   "operator": "draft", "parent_ids": [], "hypothesis": "trial",
+                                   "candidate_py": f"import {next(imports)}\n" + self.seed.read_text()})
+            result = run_search(**self.kwargs, max_steps=2, resume=True, proposer=repair)
+        self.assertEqual(len(result["proposal_errors"]), 4)
+        self.assertEqual(evaluate.call_count, 2)
+        self.assertEqual(result["steps"][0]["status"], "evaluated")
+
+    def test_larger_budget_does_not_reuse_terminal_proposal_errors(self):
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        calls = []
+
+        def propose(context):
+            calls.append(context)
+            if len(calls) > 1:
+                return {"action": "unsupported"}
+            return {"operator": "draft", "parent_ids": [], "hypothesis": "trial",
+                    "candidate_py": self.seed.read_text() + "\n# trial\n"}
+
+        def resumed_proposal(context):
+            self.assertNotIn("proposal_error", context)
+            self.assertNotIn("proposal_errors", context)
+            return {"action": "stop", "reason": "No new experiment justified"}
+
+        with patch("couponevo.search._evaluate", return_value=report):
+            first = run_search(**self.kwargs, max_steps=1, proposer=propose,
+                               reflector=lambda _: {"verdict": "inconclusive", "evidence": "No gain",
+                                                    "lesson": "Need more evidence", "next_direction": "Stop"})
+            self.assertTrue(all(error["budget_exhausted"] for error in first["proposal_errors"]))
+            run_search(**self.kwargs, max_steps=2, resume=True, proposer=resumed_proposal)
+
     def test_optional_feature_gap_accepts_null(self):
         source = self.seed.read_text()
         proposal = lambda context: {"operator": "draft", "parent_ids": [],
