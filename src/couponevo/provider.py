@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -43,6 +46,7 @@ class ApiProvider:
 
 def request_json(provider: ApiProvider, effort: str, messages: list[dict], *,
                  max_tokens: int, timeout: int = 180) -> dict:
+    deadline = time.monotonic() + timeout
     payload = {"model": provider.model, "reasoning_effort": effort,
                "response_format": {"type": "json_object"},
                "max_tokens": max_tokens, "messages": messages}
@@ -52,11 +56,51 @@ def request_json(provider: ApiProvider, effort: str, messages: list[dict], *,
         provider.endpoint, data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {provider.api_key}",
                  "Content-Type": "application/json"})
+
+    completed = queue.Queue(maxsize=1)
+    cancelled = threading.Event()
+
+    def read_response() -> None:
+        if cancelled.is_set():
+            return
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                if cancelled.is_set():
+                    return
+                read1 = getattr(response, "read1", None)
+                if callable(read1):
+                    chunks = []
+                    while not cancelled.is_set():
+                        chunk = read1(65536)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                    if cancelled.is_set():
+                        return
+                    raw = b"".join(chunks)
+                else:
+                    raw = response.read()
+            if not cancelled.is_set():
+                completed.put((True, json.loads(raw)))
+        except Exception as error:
+            if not cancelled.is_set():
+                completed.put((False, error))
+
+    if deadline <= time.monotonic():
+        raise TimeoutError(f"Agent provider timed out after {timeout}s")
+    threading.Thread(target=read_response, daemon=True).start()
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            result = json.load(response)
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f"Agent provider returned HTTP {error.code}; check model and reasoning effort support") from None
+        succeeded, result = completed.get(timeout=max(0, deadline - time.monotonic()))
+    except queue.Empty:
+        cancelled.set()
+        raise TimeoutError(f"Agent provider timed out after {timeout}s") from None
+    except BaseException:
+        cancelled.set()
+        raise
+    if not succeeded:
+        if isinstance(result, urllib.error.HTTPError):
+            raise RuntimeError(f"Agent provider returned HTTP {result.code}; check model and reasoning effort support") from None
+        raise result
     choice = result["choices"][0]
     if choice["finish_reason"] != "stop":
         raise IncompleteResponseError(choice["finish_reason"])

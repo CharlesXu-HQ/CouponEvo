@@ -1,5 +1,8 @@
 import json
+import threading
+import time
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from couponevo.provider import ApiProvider, request_json
@@ -71,6 +74,85 @@ class ProviderTests(unittest.TestCase):
                 request_json(provider, "high", [{"role": "user", "content": "test"}], max_tokens=100)
         self.assertEqual(type(captured.exception).__name__, "IncompleteResponseError")
         self.assertEqual(getattr(captured.exception, "reason", None), "length")
+
+    def test_keepalive_chunks_cannot_extend_total_deadline_and_reader_closes(self):
+        class KeepaliveResponse(FakeResponse):
+            def __init__(self):
+                self.closed = threading.Event()
+                self.reads = 0
+
+            def read(self):
+                time.sleep(0.4)
+                return super().read()
+
+            def read1(self, _size):
+                self.reads += 1
+                time.sleep(0.01)
+                return b" \n"
+
+            def __exit__(self, *_):
+                self.closed.set()
+                return False
+
+        response = KeepaliveResponse()
+        provider = ApiProvider("https://example.test", "model", "key")
+        with patch("urllib.request.urlopen", return_value=response):
+            start = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                request_json(provider, "high", [], max_tokens=100, timeout=0.1)
+            elapsed = time.monotonic() - start
+            self.assertTrue(response.closed.wait(0.4))
+        self.assertLess(elapsed, 0.3)
+        self.assertGreater(response.reads, 0)
+
+    def test_chunked_normal_response_is_decoded(self):
+        class ChunkedResponse(FakeResponse):
+            def __init__(self):
+                self.parts = iter((b'{"choices":[{"finish_reason":"stop",',
+                                   b'"message":{"content":"{\\"ok\\": true}"}}]}', b""))
+
+            def read(self):
+                raise AssertionError("HTTPResponse.read1 should be used")
+
+            def read1(self, _size):
+                return next(self.parts)
+
+        provider = ApiProvider("https://example.test", "model", "key")
+        with patch("urllib.request.urlopen", return_value=ChunkedResponse()):
+            self.assertEqual(request_json(provider, "high", [], max_tokens=100), {"ok": True})
+
+    def test_connection_delay_is_inside_total_deadline(self):
+        class ClosingResponse(FakeResponse):
+            def __init__(self):
+                self.closed = threading.Event()
+
+            def __exit__(self, *_):
+                self.closed.set()
+                return False
+
+        response = ClosingResponse()
+
+        def delayed_open(*_args, **_kwargs):
+            time.sleep(0.4)
+            return response
+
+        provider = ApiProvider("https://example.test", "model", "key")
+        with patch("urllib.request.urlopen", side_effect=delayed_open):
+            start = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                request_json(provider, "high", [], max_tokens=100, timeout=0.1)
+            elapsed = time.monotonic() - start
+            self.assertTrue(response.closed.wait(0.5))
+        self.assertLess(elapsed, 0.3)
+
+    def test_http_error_still_reports_status_without_credentials(self):
+        provider = ApiProvider("https://example.test", "model", "secret-key")
+        error = urllib.error.HTTPError("https://example.test", 429, "Too Many Requests", {}, None)
+        with patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(RuntimeError) as captured:
+                request_json(provider, "high", [], max_tokens=100, timeout=0.05)
+        self.assertIn("HTTP 429", str(captured.exception))
+        self.assertNotIn("secret-key", str(captured.exception))
 
 
 if __name__ == "__main__":
