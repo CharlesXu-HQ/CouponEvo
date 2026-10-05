@@ -86,11 +86,15 @@ uv run --frozen python -m couponevo.cli finalize examples/starbucks.json \
 
 The Agent provider is configurable by URL, model, and API-key environment variable. The example requests `high` reasoning for iteration and analysis, and `max` review for flagged anomalies; the endpoint must support those settings. Search results and candidate snapshots are written under ignored `runs/`. Run `python -m couponevo.cli --help` for local baseline evaluation, resuming a search, and other options.
 
+Provider JSON also accepts `request_timeout_seconds` and per-stage `token_budgets` for `proposal`, `analysis`, `review`, `reflection`, and `diagnosis`. The DeepSeek example sets a 600-second deadline per request and output budgets of 65,536 / 20,000 / 32,768 / 20,000 / 10,000 tokens, respectively. Omitted settings retain existing defaults. These non-secret settings are recorded with the search; changing them requires a new search so a resumed experiment keeps the same Agent configuration. Structured-response recovery is bounded to three attempts per stage, including at most one timeout retry. Invalid replies are returned to the Agent for correction; truncation requires a complete regenerated response. Host validation errors preserve the rejected proposal for repair and resume, and do not restart an exhausted provider recovery budget.
+
 ## Scope and contribution
 
 ### Evolve the inside of a backbone
 
 With ModelEvoHarness, proposals record the estimator, representation backbone and a component inventory with source-code locations. The Agent prioritizes justified local changes and reads component reference code before composing it. A backbone switch accounts for every parent component as retain, adapt, drop or retest, with compatibility and controls; there is no fixed trial quota or model-name sequence. Component experience stays bound to the same dataset/task and keeps its attribution limits. See the [integration contract](docs/model-evo-harness.md#backbone-内部改造与选择性迁移).
+
+Stable estimator/backbone IDs keep local edits in the same lineage even when descriptions change. Local proposals inherit omitted IDs from their parent; legacy records resolve compatibility IDs without rewriting history. Source selection uses these IDs, while implementation claims still require code and runtime review.
 
 ### Evidence before mechanism claims
 

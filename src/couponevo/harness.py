@@ -40,6 +40,11 @@ def _is_model_evo(path: Path | None) -> bool:
     return path is not None and Path(path) == Path("model-evo")
 
 
+def model_design_identity(design: dict) -> dict:
+    """Resolve the core's stable identity without modifying a recorded design."""
+    return _model_evo_package().model_design_identity(design)
+
+
 def _model_evo_revision(package) -> str | None:
     checkout = Path(__file__).resolve().parents[2] / "third_party/model-evo-harness"
     if not Path(package.__file__).resolve().is_relative_to(checkout.resolve()):

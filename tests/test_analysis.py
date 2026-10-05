@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from couponevo.analysis import analyze_reports_deepseek
+from couponevo.provider import ApiProvider
 
 
 class FakeResponse:
@@ -102,6 +103,50 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(call.call_count, 2)
         self.assertEqual(result["high"]["summary"], self.high["summary"])
         self.assertIsNone(result["max"])
+
+    def test_analysis_repairs_original_content_and_respects_configured_budget(self):
+        class BadResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": '{"summary":'}}]}).encode()
+
+        provider = ApiProvider("https://api.deepseek.com", "deepseek-flash", "test-key",
+                               request_timeout_seconds=240, token_budgets={"analysis": 22000})
+        with patch("urllib.request.urlopen", side_effect=[BadResponse(self.high),
+                                                          FakeResponse(self.high)]) as call:
+            analyze_reports_deepseek(self.report, self.report, candidate_path=self.candidate,
+                                     output_dir=self.root, provider=provider)
+        payloads = [json.loads(item.args[0].data) for item in call.call_args_list]
+        self.assertEqual(payloads[-1]["messages"][-2], {"role": "assistant", "content": '{"summary":'})
+        self.assertEqual([item["max_tokens"] for item in payloads], [22000, 22000])
+        self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [240, 240])
+
+    def test_review_uses_its_stage_budget_independently_of_effort(self):
+        revised = json.loads(json.dumps(self.report))
+        revised["policies"]["random"]["effects"]["active"]["mean"] = 0.06
+        provider = ApiProvider("https://api.deepseek.com", "deepseek-flash", "test-key",
+                               iteration_effort="max", review_effort="high",
+                               token_budgets={"analysis": 21000, "review": 26000})
+        with patch("urllib.request.urlopen", return_value=FakeResponse(self.high)) as call:
+            analyze_reports_deepseek(self.report, revised, candidate_path=self.candidate,
+                                     output_dir=self.root, provider=provider)
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [21000, 26000])
+
+    def test_analysis_transient_timeout_retries_once(self):
+        with patch("urllib.request.urlopen", side_effect=[TimeoutError("transient"),
+                                                          FakeResponse(self.high)]) as call:
+            result = analyze_reports_deepseek(self.report, self.report, candidate_path=self.candidate,
+                                              output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(result["high"], self.high)
+
+    def test_analysis_persistent_timeout_stops_after_two_attempts(self):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("transient")) as call:
+            with self.assertRaises(TimeoutError):
+                analyze_reports_deepseek(self.report, self.report, candidate_path=self.candidate,
+                                         output_dir=self.root, api_key="test-key")
+        self.assertEqual(call.call_count, 2)
 
     def test_high_length_retries_with_double_tokens_and_same_effort(self):
         with patch("urllib.request.urlopen", side_effect=[

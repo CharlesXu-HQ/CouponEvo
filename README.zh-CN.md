@@ -86,11 +86,15 @@ uv run --frozen python -m couponevo.cli finalize examples/starbucks.json \
 
 Agent 可通过 provider URL、模型名和密钥环境变量接入兼容服务。示例为代码迭代和报告分析请求 `high`，反常结果触发 `max` 复核；服务端须支持相应参数。报告与候选快照写入不提交到 Git 的 `runs/`。单次基线评估、断点续跑等参数见 `python -m couponevo.cli --help`。
 
+Provider JSON 支持 `request_timeout_seconds`，以及按 `proposal`、`analysis`、`review`、`reflection`、`diagnosis` 设置的 `token_budgets`。DeepSeek 示例为每次请求设置 600 秒期限，五个阶段的输出预算依次为 65,536 / 20,000 / 32,768 / 20,000 / 10,000 tokens；省略配置时保留原有默认值。这些非秘密参数会写入搜索身份，修改后须新建搜索，确保断点续跑使用同一 Agent 配置。 每个阶段的结构化响应恢复最多尝试三次，其中超时最多重试一次。格式错误会携带原回复要求 Agent 修复；截断回复必须完整重新生成。宿主校验失败会保留被拒提案，供修复和续跑使用；已耗尽的请求恢复预算不会被外层循环重新启动。
+
 ## 适用范围与参与
 
 ### 在 backbone 内改造，切换时选择性迁移
 
 接入 ModelEvoHarness 后，提案分别记录估计方式、表征 backbone 和具有代码位置的组件清单。Agent 优先做有依据的局部改造，并读取组件参考代码再组合。切换时，必须对父版本的各个组件选择保留、适配、放弃或重新验证，写清兼容性与对照；不规定迭代轮数或模型名称顺序。组件经验仍与当前数据集和任务绑定，保留原有归因限制。详见[接入说明](docs/model-evo-harness.md#backbone-内部改造与选择性迁移)。
+
+估计方式和 backbone 使用稳定 ID，局部改造时可以更新描述。`local` 提案省略 ID 时继承父 ID；旧记录读取时生成兼容 ID，不改写历史。代表源码按 ID 选择，实际结构是否一致仍由代码和运行证据核验。
 
 ### 先核实证据，再总结机制
 

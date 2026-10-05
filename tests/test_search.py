@@ -177,6 +177,8 @@ class SearchTests(unittest.TestCase):
         result = run_search(**self.kwargs, max_steps=1, proposer=propose)
         self.assertEqual(len(contexts), 2)
         self.assertIn("proposal_error", contexts[1])
+        self.assertEqual(contexts[1]["rejected_proposal"]["parent_ids"], ["missing"])
+        self.assertEqual(contexts[1]["rejected_proposal"]["candidate_py"], source + "\n# revised\n")
         self.assertEqual(result["steps"][0]["status"], "evaluated")
 
     def test_unsupported_import_error_names_modules_and_allowed_roots(self):
@@ -200,10 +202,13 @@ class SearchTests(unittest.TestCase):
                 self.assertIn("os", context["proposal_errors"][0]["error"])
                 self.assertIn("pathlib", context["proposal_errors"][1]["error"])
                 self.assertEqual(context["proposal_error"], context["proposal_errors"][-1]["error"])
+                self.assertTrue(all("proposal" not in error for error in context["proposal_errors"]))
+                self.assertEqual(context["rejected_proposal"]["candidate_py"], "import pathlib\n" + self.seed.read_text())
                 return {"operator": "draft", "parent_ids": [], "hypothesis": "repair imports",
                         "candidate_py": self.seed.read_text() + "\n# repaired\n"}
             self.assertNotIn("proposal_error", context)
             self.assertNotIn("proposal_errors", context)
+            self.assertNotIn("rejected_proposal", context)
             return {"action": "stop", "reason": "Repair evaluated"}
 
         with patch("couponevo.search._evaluate", return_value=report) as evaluate:
@@ -233,6 +238,7 @@ class SearchTests(unittest.TestCase):
         def resumed_proposal(context):
             self.assertNotIn("proposal_error", context)
             self.assertNotIn("proposal_errors", context)
+            self.assertNotIn("rejected_proposal", context)
             return {"action": "stop", "reason": "No new experiment justified"}
 
         with patch("couponevo.search._evaluate", return_value=report):
@@ -241,6 +247,81 @@ class SearchTests(unittest.TestCase):
                                                     "lesson": "Need more evidence", "next_direction": "Stop"})
             self.assertTrue(all(error["budget_exhausted"] for error in first["proposal_errors"]))
             run_search(**self.kwargs, max_steps=2, resume=True, proposer=resumed_proposal)
+
+    def test_rejected_research_design_is_kept_for_same_proposal_repair(self):
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        plugin = Path(__file__).resolve().parents[1] / "harnesses/coupon-research.json"
+        original = {"operator": "draft", "parent_ids": [], "hypothesis": "Remove only the residual branch",
+                    "candidate_py": self.seed.read_text() + "\n# nested control\n",
+                    "research": {"direction": "local ablation", "mechanism": "remove residual",
+                                 "model_design": {"change_scope": "local", "backbone_id": "changed-id"}}}
+        corrected = {**original, "research": {**original["research"], "model_design": {
+                     **original["research"]["model_design"], "backbone_id": "parent-id"}}}
+        contexts = []
+
+        def propose(context):
+            contexts.append(context)
+            if len(contexts) == 1:
+                return original
+            self.assertEqual(context["rejected_proposal"], original)
+            self.assertIn("stable IDs", context["proposal_error"])
+            return corrected
+
+        with patch("couponevo.search._evaluate", return_value=report), \
+                patch("couponevo.search.validate_research", side_effect=[
+                    ValueError("local must preserve parent stable IDs"), corrected["research"]]):
+            result = run_search(**self.kwargs, max_steps=1, proposer=propose, harness_path=plugin)
+        self.assertEqual(result["proposal_errors"][0]["proposal"], original)
+        self.assertEqual(result["steps"][0]["hypothesis"], original["hypothesis"])
+
+    def test_proposer_failure_does_not_record_a_previous_raw_proposal(self):
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        original = {"operator": "draft", "parent_ids": [], "hypothesis": "Keep this experiment",
+                    "candidate_py": "import os\n" + self.seed.read_text()}
+        with patch("couponevo.search._evaluate", return_value=report):
+            with self.assertRaisesRegex(ValueError, "provider JSON malformed"):
+                run_search(**self.kwargs, max_steps=1,
+                           proposer=unittest.mock.Mock(side_effect=[original, ValueError("provider JSON malformed")]))
+        journal = json.loads((self.root / "runs/agent-search/journal.json").read_text())
+        self.assertEqual(journal["proposal_errors"][0]["proposal"], original)
+        self.assertNotIn("proposal", journal["proposal_errors"][1])
+        for failure in journal["proposal_errors"]:
+            failure.pop("proposal", None)
+        (self.root / "runs/agent-search/journal.json").write_text(json.dumps(journal))
+
+        def resume_legacy(context):
+            self.assertEqual(len(context["proposal_errors"]), 2)
+            self.assertNotIn("rejected_proposal", context)
+            return {"action": "stop", "reason": "No original candidate was recorded"}
+
+        run_search(**self.kwargs, max_steps=1, proposer=resume_legacy, resume=True)
+
+    def test_exhausted_provider_recovery_does_not_restart_in_outer_proposal_loop(self):
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        error = RuntimeError("provider recovery budget exhausted")
+        error.agent_response_recovery_exhausted = True
+        proposer = unittest.mock.Mock(side_effect=error)
+        with patch("couponevo.search._evaluate", return_value=report):
+            with self.assertRaisesRegex(RuntimeError, "provider recovery budget exhausted"):
+                run_search(**self.kwargs, max_steps=1, proposer=proposer)
+        self.assertEqual(proposer.call_count, 1)
+        journal = json.loads((self.root / "runs/agent-search/journal.json").read_text())
+        self.assertEqual(len(journal["proposal_errors"]), 1)
+        self.assertNotIn("proposal", journal["proposal_errors"][0])
+
+    def test_exhausted_provider_recovery_does_not_restart_outer_analysis_loop(self):
+        report = {"holdout": "validation", "run_id": "unit",
+                  "policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        error = RuntimeError("provider recovery budget exhausted")
+        error.agent_response_recovery_exhausted = True
+        analyzer = unittest.mock.Mock(side_effect=error)
+        proposal = {"operator": "draft", "parent_ids": [], "hypothesis": "Controlled local edit",
+                    "candidate_py": self.seed.read_text() + "\n# local\n"}
+        with patch("couponevo.search._evaluate", return_value=report):
+            result = run_search(**self.kwargs, max_steps=1, proposer=lambda _: proposal, analyzer=analyzer)
+        self.assertEqual(analyzer.call_count, 1)
+        self.assertEqual(result["steps"][0]["analysis_attempts"], 1)
+        self.assertEqual(result["steps"][0]["eligibility"], "blocked_analysis_error")
 
     def test_optional_feature_gap_accepts_null(self):
         source = self.seed.read_text()

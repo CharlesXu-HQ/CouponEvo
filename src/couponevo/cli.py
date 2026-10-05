@@ -521,12 +521,13 @@ def main() -> None:
         parser.error("Agent code requires --sandbox-image, or explicit --unsafe-local-execution")
     provider_name = ("api" if args.agent_provider == "codex" and api_mode else args.agent_provider)
     api_provider = None
+    api_budget_info = {}
     if api_mode:
         config = json.loads(args.agent_config.read_text()) if args.agent_config else {}
         if not isinstance(config, dict):
             parser.error("agent configuration must be a JSON object")
         extra = set(config) - {"provider_url", "model", "api_key_env", "thinking",
-                               "iteration_effort", "review_effort"}
+                               "iteration_effort", "review_effort", "request_timeout_seconds", "token_budgets"}
         if extra:
             parser.error(f"unknown agent configuration fields: {', '.join(sorted(extra))}")
         url = args.agent_provider_url or config.get("provider_url") or (
@@ -545,9 +546,15 @@ def main() -> None:
                                        thinking=config.get("thinking", "enabled" if provider_name == "deepseek" or
                                                            urlsplit(url).hostname == "api.deepseek.com" else "omit"),
                                        iteration_effort=config.get("iteration_effort", "high"),
-                                       review_effort=config.get("review_effort", "max"))
+                                       review_effort=config.get("review_effort", "max"),
+                                       request_timeout_seconds=config.get("request_timeout_seconds"),
+                                       token_budgets=config.get("token_budgets", {}))
         except ValueError as error:
             parser.error(str(error))
+        if api_provider.request_timeout_seconds is not None:
+            api_budget_info["request_timeout_seconds"] = api_provider.request_timeout_seconds
+        if api_provider.token_budgets:
+            api_budget_info["token_budgets"] = api_provider.token_budgets
     budget = Budget(args.budget_kind, args.budget)
     if args.command == "finalize":
         report = finalize_search(args.manifest, budget, seed=args.seed, output=args.output,
@@ -574,7 +581,7 @@ def main() -> None:
                              agent_info={"provider_url": api_provider.url, "model": api_provider.model,
                                          "thinking": api_provider.thinking,
                                          "iteration_effort": api_provider.iteration_effort,
-                                         "review_effort": api_provider.review_effort},
+                                         "review_effort": api_provider.review_effort, **api_budget_info},
                              analyzer=lambda prior, revised, candidate, directory:
                              analyze_reports_deepseek(prior, revised, candidate_path=candidate,
                                                       output_dir=directory, provider=api_provider))
@@ -604,7 +611,7 @@ def main() -> None:
             if api_mode:
                 agent_info.update({"provider_url": api_provider.url,
                                    "iteration_effort": api_provider.iteration_effort,
-                                   "review_effort": api_provider.review_effort})
+                                   "review_effort": api_provider.review_effort, **api_budget_info})
         else:
             agent_info = None
         report = run_experiment(args.manifest, budget, seed=args.seed, output=args.output,

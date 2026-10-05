@@ -78,6 +78,52 @@ class ModelCompositionTests(unittest.TestCase):
         self.assertEqual(len(context["history"]), 10)
         self.assertEqual(context["available"]["step-4"]["candidate_py"], "source step-4")
 
+    def test_context_groups_stable_ids_independently_of_model_descriptions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "seed.py").write_text("seed source")
+            steps = []
+            for index, backbone_id in enumerate(("a", "a", "b", "c", "main", "main", "main", "main")):
+                identifier = f"step-{index}"
+                description = "same prose, different networks" if index in (2, 3) else f"local description {index}"
+                recorded = {**design(description), "estimator_id": "t-learner", "backbone_id": backbone_id}
+                (root / f"{identifier}.py").write_text(f"source {identifier}")
+                steps.append({"id": identifier, "candidate": f"{identifier}.py", "status": "evaluated",
+                              "score": index, "eligibility": "eligible", "research": {
+                                  "direction": "cross", "mechanism": "cross", "model_design": recorded}})
+            journal = {"task": {"dataset": "d", "manifest": "m", "objective": "active", "budget": {}},
+                       "baseline": {"id": "seed", "candidate": "seed.py", "status": "evaluated", "score": 0},
+                       "steps": steps, "best_id": "step-7"}
+            original = json.dumps(journal, sort_keys=True)
+            context = _context(journal, root)
+            self.assertEqual(json.dumps(journal, sort_keys=True), original)
+        self.assertEqual(set(context["available"]), {"seed", "step-7", "step-6", "step-3", "step-2", "step-1"})
+        self.assertEqual(context["available"]["step-3"]["model_identity"],
+                         {"estimator_id": "t-learner", "backbone_id": "c"})
+
+    def test_recorded_gpu_local_ablation_keeps_identity_despite_changed_description(self):
+        path = Path(__file__).resolve().parents[1] / "docs/research/compositional-harness-gpu-validation-2026-10-05.json"
+        attempt = json.loads(path.read_text())["attempts"][1]
+        source = attempt["steps"][0]
+        response = next(item for item in attempt["provider_final_responses"] if item["file"] == "call-009.json")
+        proposal = json.loads(response["content"])
+        snapshot = {"fields": [f"V{index}" for index in range(1, 8)], "capabilities": [
+            "tabular_features", "observed_outcome_labels", "assignment_or_exposure_propensity", "decision_rule_adapter"],
+            "framework": "pytorch", "stage": "policy", "model_design_required": True}
+        before = json.dumps(source, sort_keys=True)
+        harness = {"source": "ModelEvoHarness", "task_snapshot": snapshot, "catalog": {}}
+        self.assertNotEqual(proposal["research"]["model_design"]["backbone"], source["research"]["model_design"]["backbone"])
+        from couponevo.research_evidence import search_evidence
+        facts = search_evidence({"baseline": attempt["baseline"], "steps": [source], "harness": {
+            "dataset_profile": {"training_rows": attempt["splits"][0]["counts"]["train"]}}})
+        checked = validate_research(proposal, harness, steps=[source], evidence=facts)
+        from couponevo.harness import model_design_identity
+        self.assertEqual(model_design_identity(checked["model_design"]), model_design_identity(source["research"]["model_design"]))
+        self.assertEqual(checked["model_design"]["change_scope"], "local")
+        self.assertEqual([item["decision"] for item in checked["model_design"]["inheritance"]],
+                         ["retain", "adapt", "retain", "retain", "retain"])
+        self.assertEqual(json.dumps(source, sort_keys=True), before)
+
     def test_reflection_bridge_identifies_current_design_and_trial_status(self):
         core = Mock(side_effect=lambda reflection, *_args, **_kwargs: reflection)
         reflection = {"technical_experience": {key: "evidence" for key in

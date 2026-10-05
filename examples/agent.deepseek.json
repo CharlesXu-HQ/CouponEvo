@@ -4,5 +4,13 @@
   "api_key_env": "AGENT_API_KEY",
   "thinking": "enabled",
   "iteration_effort": "high",
-  "review_effort": "max"
+  "review_effort": "max",
+  "request_timeout_seconds": 600,
+  "token_budgets": {
+    "proposal": 65536,
+    "analysis": 20000,
+    "review": 32768,
+    "reflection": 20000,
+    "diagnosis": 10000
+  }
 }

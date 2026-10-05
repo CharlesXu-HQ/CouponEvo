@@ -5,49 +5,43 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .provider import ApiProvider, IncompleteResponseError, request_json
+from .agent import _JSONRecovery
+from .provider import ApiProvider
 
 
 FLAGS = ("uplift_anomaly", "feature_leakage", "cost_tradeoff_unclear")
 
 
 def _ask(provider: ApiProvider, effort: str, messages: list[dict], *,
-         implementation_required: bool = False) -> dict:
-    max_tokens = 10000 if effort == "high" else 16000
-    for attempt in range(3):
-        try:
-            answer = request_json(provider, effort, messages,
-                                  max_tokens=max_tokens, timeout=300 if max_tokens > 16000 else 180)
-            if not isinstance(answer.get("summary"), str) or not isinstance(answer.get("recommendation"), str):
-                raise ValueError("Agent analysis needs a summary and recommendation")
-            for name in FLAGS:
-                if not isinstance(answer.get(name), dict) or not isinstance(answer[name].get("flag"), bool):
-                    raise ValueError(f"Agent analysis needs a boolean {name} flag")
-            leakage = answer["feature_leakage"]
-            if (not isinstance(leakage.get("confirmed"), bool) or
-                    (leakage["confirmed"] and
-                     (not leakage["flag"] or not isinstance(leakage.get("evidence"), str) or
-                      not leakage["evidence"].strip()))):
-                raise ValueError("feature_leakage needs confirmed=true only with a flagged, evidenced leak")
-            if implementation_required:
-                check = answer.get("implementation_check")
-                if (not isinstance(check, dict) or
-                        check.get("status") not in {"verified", "contradicted", "unverified"} or
-                        not isinstance(check.get("evidence"), str) or not check["evidence"].strip() or
-                        not isinstance(check.get("changed_factors"), list) or any(
-                            not isinstance(factor, str) or not factor.strip()
-                            for factor in check["changed_factors"])):
-                    raise ValueError("implementation_check needs status, evidence and changed_factors")
-            return answer
-        except IncompleteResponseError as error:
-            if error.reason != "length" or attempt == 2:
-                raise
-            max_tokens = min(max_tokens * 2, 32768)
-        except ValueError as error:
-            if attempt == 2:
-                raise
-            messages = [*messages, {"role": "user", "content":
-                        f"The previous response was invalid: {error}. Return one complete JSON object following the analysis contract."}]
+         implementation_required: bool = False, stage: str = "analysis") -> dict:
+    recovery = _JSONRecovery(provider, effort, stage,
+                             10000 if effort == "high" else 16000)
+
+    def analyze():
+        answer = recovery.request(messages)
+        if not isinstance(answer.get("summary"), str) or not isinstance(answer.get("recommendation"), str):
+            raise ValueError("Agent analysis needs a summary and recommendation")
+        for name in FLAGS:
+            if not isinstance(answer.get(name), dict) or not isinstance(answer[name].get("flag"), bool):
+                raise ValueError(f"Agent analysis needs a boolean {name} flag")
+        leakage = answer["feature_leakage"]
+        if (not isinstance(leakage.get("confirmed"), bool) or
+                (leakage["confirmed"] and
+                 (not leakage["flag"] or not isinstance(leakage.get("evidence"), str) or
+                  not leakage["evidence"].strip()))):
+            raise ValueError("feature_leakage needs confirmed=true only with a flagged, evidenced leak")
+        if implementation_required:
+            check = answer.get("implementation_check")
+            if (not isinstance(check, dict) or
+                    check.get("status") not in {"verified", "contradicted", "unverified"} or
+                    not isinstance(check.get("evidence"), str) or not check["evidence"].strip() or
+                    not isinstance(check.get("changed_factors"), list) or any(
+                        not isinstance(factor, str) or not factor.strip()
+                        for factor in check["changed_factors"])):
+                raise ValueError("implementation_check needs status, evidence and changed_factors")
+        return answer
+
+    return recovery.run(analyze)
 
 
 def _review_reasons(prior: dict, report: dict, high: dict) -> list[str]:
@@ -154,7 +148,7 @@ def analyze_reports_deepseek(prior: dict, revised: dict, *, candidate_path: Path
         maximum = _ask(provider, provider.review_effort, [
             {"role": "system", "content": instruction + " Independently audit the first analysis; confirm or refute each review trigger with evidence."},
             {"role": "user", "content": f"Reports:\n{context}\n\nCandidate code:\n{candidate}\n\nHigh analysis:\n{json.dumps(high, ensure_ascii=False)}\n\nReview triggers: {', '.join(reasons)}"},
-        ], implementation_required=implementation_required)
+        ], implementation_required=implementation_required, stage="review")
     result = {"model": provider.model, "provider_url": provider.url,
               "initial_effort": provider.iteration_effort,
               "review_effort": provider.review_effort if maximum else None,

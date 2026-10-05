@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import queue
 import threading
 import time
@@ -13,9 +14,18 @@ from urllib.parse import urlsplit
 
 
 class IncompleteResponseError(RuntimeError):
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, content: str | None = None):
         self.reason = reason
+        self.content = content
         super().__init__(f"Agent provider response incomplete: {reason}")
+
+
+class InvalidJSONResponseError(ValueError):
+    def __init__(self, content: str, parse_error: json.JSONDecodeError):
+        self.content = content
+        self.parse_error = parse_error
+        super().__init__(f"Agent provider returned invalid JSON: {parse_error.msg} "
+                         f"(line {parse_error.lineno}, column {parse_error.colno})")
 
 
 @dataclass(frozen=True)
@@ -26,6 +36,8 @@ class ApiProvider:
     thinking: str = "enabled"
     iteration_effort: str = "high"
     review_effort: str = "max"
+    request_timeout_seconds: float | None = None
+    token_budgets: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         parts = urlsplit(self.url)
@@ -37,6 +49,17 @@ class ApiProvider:
             raise ValueError("thinking must be enabled or omitted when using high/max reasoning")
         if self.iteration_effort not in {"high", "max"} or self.review_effort not in {"high", "max"}:
             raise ValueError("iteration_effort and review_effort must be high or max")
+        timeout = self.request_timeout_seconds
+        if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or
+                                    not math.isfinite(timeout) or timeout <= 0):
+            raise ValueError("request_timeout_seconds must be a positive finite number")
+        stages = {"proposal", "analysis", "review", "reflection", "diagnosis"}
+        if (not isinstance(self.token_budgets, dict) or set(self.token_budgets) - stages or
+                any(type(value) is not int or value <= 0 for value in self.token_budgets.values())):
+            raise ValueError("token_budgets must map proposal, analysis, review, reflection or diagnosis to positive integers")
+
+    def token_budget(self, stage: str, default: int) -> int:
+        return self.token_budgets.get(stage, default)
 
     @property
     def endpoint(self) -> str:
@@ -45,7 +68,9 @@ class ApiProvider:
 
 
 def request_json(provider: ApiProvider, effort: str, messages: list[dict], *,
-                 max_tokens: int, timeout: int = 180) -> dict:
+                 max_tokens: int, timeout: float | None = None) -> dict:
+    if timeout is None:
+        timeout = provider.request_timeout_seconds if provider.request_timeout_seconds is not None else 180
     deadline = time.monotonic() + timeout
     payload = {"model": provider.model, "reasoning_effort": effort,
                "response_format": {"type": "json_object"},
@@ -102,9 +127,13 @@ def request_json(provider: ApiProvider, effort: str, messages: list[dict], *,
             raise RuntimeError(f"Agent provider returned HTTP {result.code}; check model and reasoning effort support") from None
         raise result
     choice = result["choices"][0]
+    content = choice.get("message", {}).get("content")
     if choice["finish_reason"] != "stop":
-        raise IncompleteResponseError(choice["finish_reason"])
-    answer = json.loads(choice["message"]["content"])
+        raise IncompleteResponseError(choice["finish_reason"], content if isinstance(content, str) else None)
+    try:
+        answer = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise InvalidJSONResponseError(content, error) from None
     if not isinstance(answer, dict):
         raise ValueError("Agent provider must return a JSON object")
     return answer

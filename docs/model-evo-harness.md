@@ -40,7 +40,11 @@ ModelEvo 模式按观测到的问题与信息价值选择实验，不要求遍�
 
 ## backbone 内部改造与选择性迁移
 
-新建 ModelEvo 搜索会启用 `model_design_required`。`research.model_design` 记录 `estimator`（如 T/S/DR 的估计方式）、`backbone`（表征/预测网络）、`change_scope`、`parent_trial_id`、数据适配理由、对照计划以及完整 `components`。网络交叉、head、loss、采样、优化等都可以作为局部组件，这些例子不是可选方向的封闭枚举。
+新建 ModelEvo 搜索会启用 `model_design_required`。`research.model_design` 使用稳定的 `estimator_id`、`backbone_id` 标识模型组合；`estimator`（如 T/S/DR 的估计方式）和 `backbone`（表征/预测网络）用于描述当前实现。它还记录 `change_scope`、`parent_trial_id`、数据适配理由、对照计划以及完整 `components`。网络交叉、head、loss、采样、优化等都可以作为局部组件，这些例子不是可选方向的封闭枚举。
+
+`local` 改造可以更新描述，例如记录删除一个残差分支；省略 ID 时由宿主继承父 ID，显式提交不同 ID 则不能声明为 `local`。切换模型身份使用 `switch`，仍须逐项处理父组件。旧记录缺少 ID 时，由 Harness 根据原描述确定性生成兼容 ID；读取上下文会在 `available.<trial>.model_identity` 展示解析结果，并按 ID 选择不同模型的代表源码，不改写历史 journal。稳定 ID 是谱系标识，实际模型、组件及其训练行为仍需核对代码和运行证据。
+
+Stable `estimator_id` and `backbone_id` identify lineage; the corresponding descriptions may evolve during a local edit. Omitted IDs inherit from the declared parent for `local`; explicit different IDs require `switch`. Legacy records receive deterministic compatibility IDs when read, without rewriting journals. Candidate context exposes the resolved `model_identity` and groups representative source code by those IDs. Identity does not establish implementation equivalence: code and runtime checks still apply.
 
 Agent 优先围绕当前适用 backbone 提出有信息价值的代码改造；明显不适合时可以直接切换，不要求先跑固定轮数。字段较少不自动意味着无法做交叉或训练方法实验；匿名统计字段也不能被假定为序列、item 或业务分群。组件中的 `reference_method_id` 会触发 Harness 的完整源码补读，因此内部组合也能使用仓库实现作为材料。
 

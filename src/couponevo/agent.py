@@ -5,13 +5,91 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
 from .harness import validate_model_evo_data_request, validate_model_evo_reflection
-from .provider import ApiProvider, IncompleteResponseError, request_json
+from .provider import ApiProvider, IncompleteResponseError, InvalidJSONResponseError, request_json
+
+
+class _JSONRecovery:
+    """One bounded recovery budget shared by a stage, including reference reads."""
+
+    def __init__(self, provider: ApiProvider, effort: str, stage: str, default_tokens: int):
+        self.provider, self.effort, self.stage = provider, effort, stage
+        self.max_tokens = provider.token_budget(stage, default_tokens)
+        self.token_limit = max(32768, self.max_tokens * 2)
+        self.repair_messages: list[dict] = []
+        self.last_answer = None
+
+    def request(self, messages: list[dict]) -> dict:
+        self.last_answer = None
+        timeout = self.provider.request_timeout_seconds
+        if timeout is None:
+            timeout = 300 if self.max_tokens > 16000 else 180
+        answer = request_json(self.provider, self.effort, [*messages, *self.repair_messages],
+                              max_tokens=self.max_tokens, timeout=timeout)
+        self.last_answer = answer
+        # A successful reference read may advance the original operation; do not
+        # keep instructing the next response to repair an already valid read.
+        self.repair_messages = []
+        return answer
+
+    def run(self, operation):
+        try:
+            return self._run(operation)
+        except Exception as error:
+            # The host may repair its own proposal validation, but must not
+            # restart an already exhausted provider/response recovery budget.
+            error.agent_response_recovery_exhausted = True
+            raise
+
+    def _run(self, operation):
+        timeout_retried = False
+        for attempt in range(3):
+            try:
+                return operation()
+            except TimeoutError:
+                if timeout_retried or attempt == 2:
+                    raise
+                timeout_retried = True
+                reason = "timeout"
+            except IncompleteResponseError as error:
+                if error.reason != "length" or attempt == 2:
+                    raise
+                self.max_tokens = min(self.max_tokens * 2, self.token_limit)
+                # Never accept or auto-close a truncated reply. Regenerate the
+                # complete object, then apply all ordinary schema/code checks.
+                self.repair_messages = ([{"role": "assistant", "content": error.content}]
+                                        if isinstance(error.content, str) and error.content else [])
+                self.repair_messages.append({"role": "user", "content":
+                    "The previous final response was truncated at its token limit and was not accepted. Return one "
+                    "complete JSON object with complete code where required. Keep explanations concise; "
+                    "preserve the intended experiment, existing source semantics and the original output contract."})
+                reason = "length"
+            except ValueError as error:
+                if attempt == 2:
+                    raise
+                content = (error.content if isinstance(error, InvalidJSONResponseError) else
+                           json.dumps(self.last_answer, ensure_ascii=False)
+                           if self.last_answer is not None else None)
+                self.repair_messages = ([{"role": "assistant", "content": content}]
+                                        if content is not None else [])
+                self.repair_messages.append({"role": "user", "content":
+                    f"Invalid {self.stage}: {error}. Repair the previous final response to satisfy "
+                    "the original JSON and validation contract. Preserve its intent, hypothesis, "
+                    "parents and complete candidate code except where the reported error requires "
+                    "a correction. Do not choose a new experiment or silently change source semantics. "
+                    "If content is incomplete, regenerate the full valid object; do not return a "
+                    "fragment, diff, placeholders or only closing brackets."})
+                reason = "invalid_response"
+            logging.getLogger(__name__).info(
+                "Agent response recovery stage=%s attempt=%s reason=%s max_tokens=%s",
+                self.stage, attempt + 2, reason, self.max_tokens)
+        raise AssertionError("unreachable")
 
 
 def revise_candidate(candidate_path: Path, report_path: Path, *, feature_gaps_path: Path | None = None,
@@ -122,6 +200,10 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
     instruction = (
         "You lead a sequence of offline coupon-uplift experiments. Read the same-task experience, "
         "current validation history, reflections, and diagnoses before deciding the next action. "
+        "When rejected_proposal and proposal_error are supplied, this is a targeted validation "
+        "repair: preserve that proposal's hypothesis, parents and complete candidate source, "
+        "changing only what proposal_error requires. Do not replan a different experiment, "
+        "replace the algorithm or silently change source semantics while fixing metadata. "
         "Ground factual premises in host evidence, distinguishing observed facts from declared metadata "
         "and prior Agent hypotheses. Rank next actions by expected information value under the remaining "
         "budget: resolve concrete implementation contradictions or drop the invalid configuration, then "
@@ -192,7 +274,10 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
             "If history has no research.model_design yet, use change_scope=initialize, "
             "parent_trial_id=null and inheritance=[] even when improving the seed code; "
             "never invent component IDs for an untracked seed. Keep identifiers short and stable "
-            "and explanations concise. "
+            "and explanations concise. estimator and backbone describe the current recipe; "
+            "estimator_id and backbone_id identify stable lineages. In a local edit, omit these "
+            "IDs to inherit the parent IDs or copy them exactly, while updating descriptions "
+            "and components freely. Do not create a new ID just because wording changes. "
             "Few numeric features can still support useful learned interactions; sequence-specific "
             "blocks need actual ordered sequence inputs. On a switch, inspect prior component "
             "code and outcomes and selectively retain, adapt, drop or retest each parent component. "
@@ -275,56 +360,55 @@ def propose_search_candidate(provider: ApiProvider, context: dict) -> dict:
         package = _model_evo_package()
         messages[0]["content"] += "\n" + package.REFERENCE_INSTRUCTIONS
 
+    recovery = _JSONRecovery(provider, provider.iteration_effort, "proposal", 32768)
+
     def complete(current):
         current_messages = [dict(message) for message in messages]
         current_messages[1]["content"] = json.dumps(current, ensure_ascii=False)
-        return request_json(provider, provider.iteration_effort, current_messages, max_tokens=32768)
+        return recovery.request(current_messages)
 
     read_state = {}
-    for attempt in range(2):
-        try:
-            proposal = (package.propose_with_references(
-                complete, context, catalog=harness["catalog"], framework="pytorch",
-                read_state=read_state)
-                if package is not None else complete(context))
-            if not isinstance(proposal, dict):
-                raise ValueError("proposal must be a JSON object")
-            action = proposal.get("action", "experiment")
-            if action == "experiment":
-                if (proposal.get("operator") not in {"draft", "improve", "debug", "crossover"} or
-                        not isinstance(proposal.get("parent_ids"), list) or
-                        any(not isinstance(proposal.get(key), str) or not proposal[key].strip()
-                            for key in ("hypothesis", "expected_result", "candidate_py"))):
-                    raise ValueError("experiment needs operator, parent_ids, hypothesis, expected_result, and candidate_py")
-                if ((context.get("harness") or {}).get("source") == "ModelEvoHarness" and
-                        isinstance(proposal.get("feature_gaps_md"), str) and
-                        proposal["feature_gaps_md"].strip()):
-                    validate_model_evo_data_request(
-                        proposal.get("feature_request"), context["harness"]["task_snapshot"],
-                        context.get("history", []), evidence=context.get("evidence"))
-            elif action == "request_data":
-                request = proposal.get("feature_request")
-                if (not isinstance(proposal.get("reason"), str) or not proposal["reason"].strip() or
-                        not isinstance(request, dict) or
-                        any(not isinstance(request.get(key), str) or not request[key].strip()
-                            for key in ("name", "definition", "source", "as_of", "evidence", "validation_plan"))):
-                    raise ValueError("request_data needs reason and complete feature_request")
-                if (context.get("harness") or {}).get("source") == "ModelEvoHarness":
-                    validate_model_evo_data_request(
-                        request, context["harness"]["task_snapshot"], context.get("history", []),
-                        evidence=context.get("evidence"))
-            elif action in ("diagnose", "stop"):
-                field = "question" if action == "diagnose" else "reason"
-                if not isinstance(proposal.get(field), str) or not proposal[field].strip():
-                    raise ValueError(f"{action} needs {field}")
-            else:
-                raise ValueError("action must be experiment, diagnose, request_data, or stop")
-            return proposal
-        except ValueError as error:
-            if attempt:
-                raise
-            messages.append({"role": "user", "content": f"Invalid proposal: {error}. Return a corrected JSON object."})
-    raise RuntimeError("Agent proposal was unavailable")
+
+    def propose():
+        proposal = (package.propose_with_references(
+            complete, context, catalog=harness["catalog"], framework="pytorch",
+            read_state=read_state)
+            if package is not None else complete(context))
+        if not isinstance(proposal, dict):
+            raise ValueError("proposal must be a JSON object")
+        action = proposal.get("action", "experiment")
+        if action == "experiment":
+            if (proposal.get("operator") not in {"draft", "improve", "debug", "crossover"} or
+                    not isinstance(proposal.get("parent_ids"), list) or
+                    any(not isinstance(proposal.get(key), str) or not proposal[key].strip()
+                        for key in ("hypothesis", "expected_result", "candidate_py"))):
+                raise ValueError("experiment needs operator, parent_ids, hypothesis, expected_result, and candidate_py")
+            if ((context.get("harness") or {}).get("source") == "ModelEvoHarness" and
+                    isinstance(proposal.get("feature_gaps_md"), str) and
+                    proposal["feature_gaps_md"].strip()):
+                validate_model_evo_data_request(
+                    proposal.get("feature_request"), context["harness"]["task_snapshot"],
+                    context.get("history", []), evidence=context.get("evidence"))
+        elif action == "request_data":
+            request = proposal.get("feature_request")
+            if (not isinstance(proposal.get("reason"), str) or not proposal["reason"].strip() or
+                    not isinstance(request, dict) or
+                    any(not isinstance(request.get(key), str) or not request[key].strip()
+                        for key in ("name", "definition", "source", "as_of", "evidence", "validation_plan"))):
+                raise ValueError("request_data needs reason and complete feature_request")
+            if (context.get("harness") or {}).get("source") == "ModelEvoHarness":
+                validate_model_evo_data_request(
+                    request, context["harness"]["task_snapshot"], context.get("history", []),
+                    evidence=context.get("evidence"))
+        elif action in ("diagnose", "stop"):
+            field = "question" if action == "diagnose" else "reason"
+            if not isinstance(proposal.get(field), str) or not proposal[field].strip():
+                raise ValueError(f"{action} needs {field}")
+        else:
+            raise ValueError("action must be experiment, diagnose, request_data, or stop")
+        return proposal
+
+    return recovery.run(propose)
 
 
 def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
@@ -369,31 +453,23 @@ def reflect_search_step(provider: ApiProvider, observation: dict) -> dict:
         instruction += " " + observation.get("composition_instructions", "")
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps(observation, ensure_ascii=False)}]
-    max_tokens = 10000
-    for attempt in range(3):
-        try:
-            answer = request_json(provider, provider.iteration_effort, messages,
-                                  max_tokens=max_tokens, timeout=300 if max_tokens > 16000 else 180)
-            if (answer.get("verdict") not in {"consistent", "inconsistent", "inconclusive", "invalid"} or
-                    any(not isinstance(answer.get(key), str) or not answer[key].strip()
-                        for key in ("evidence", "lesson", "next_direction"))):
-                raise ValueError("reflection needs verdict, evidence, lesson, and next_direction")
-            if (observation.get("status") == "failed" or
-                    observation.get("eligibility") in {"blocked_feature_leakage", "blocked_implementation"}) and \
-                    answer["verdict"] != "invalid":
-                raise ValueError("failed, leakage-blocked or implementation-blocked candidates require an invalid verdict")
-            if observation.get("harness_source") == "ModelEvoHarness":
-                validate_model_evo_reflection(answer, observation, evidence=observation.get("evidence"))
-            return answer
-        except IncompleteResponseError as error:
-            if error.reason != "length" or attempt == 2:
-                raise
-            max_tokens = min(max_tokens * 2, 32768)
-        except ValueError as error:
-            if attempt == 2:
-                raise
-            messages.append({"role": "user", "content": f"Invalid reflection: {error}. Return corrected JSON."})
-    raise RuntimeError("Agent reflection was unavailable")
+    recovery = _JSONRecovery(provider, provider.iteration_effort, "reflection", 10000)
+
+    def reflect():
+        answer = recovery.request(messages)
+        if (answer.get("verdict") not in {"consistent", "inconsistent", "inconclusive", "invalid"} or
+                any(not isinstance(answer.get(key), str) or not answer[key].strip()
+                    for key in ("evidence", "lesson", "next_direction"))):
+            raise ValueError("reflection needs verdict, evidence, lesson, and next_direction")
+        if (observation.get("status") == "failed" or
+                observation.get("eligibility") in {"blocked_feature_leakage", "blocked_implementation"}) and \
+                answer["verdict"] != "invalid":
+            raise ValueError("failed, leakage-blocked or implementation-blocked candidates require an invalid verdict")
+        if observation.get("harness_source") == "ModelEvoHarness":
+            validate_model_evo_reflection(answer, observation, evidence=observation.get("evidence"))
+        return answer
+
+    return recovery.run(reflect)
 
 
 def diagnose_search_state(provider: ApiProvider, context: dict, question: str) -> dict:
@@ -408,15 +484,13 @@ def diagnose_search_state(provider: ApiProvider, context: dict, question: str) -
     messages = [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps({"question": question, "context": context},
                                                         ensure_ascii=False)}]
-    for attempt in range(2):
-        try:
-            answer = request_json(provider, provider.iteration_effort, messages, max_tokens=10000)
-            if any(not isinstance(answer.get(key), str) or not answer[key].strip()
-                   for key in ("finding", "evidence", "next_direction")):
-                raise ValueError("diagnosis needs finding, evidence, and next_direction")
-            return answer
-        except ValueError as error:
-            if attempt:
-                raise
-            messages.append({"role": "user", "content": f"Invalid diagnosis: {error}. Return corrected JSON."})
-    raise RuntimeError("Agent diagnosis was unavailable")
+    recovery = _JSONRecovery(provider, provider.iteration_effort, "diagnosis", 10000)
+
+    def diagnose():
+        answer = recovery.request(messages)
+        if any(not isinstance(answer.get(key), str) or not answer[key].strip()
+               for key in ("finding", "evidence", "next_direction")):
+            raise ValueError("diagnosis needs finding, evidence, and next_direction")
+        return answer
+
+    return recovery.run(diagnose)

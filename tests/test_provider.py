@@ -21,6 +21,52 @@ class FakeResponse:
 
 
 class ProviderTests(unittest.TestCase):
+    def test_stage_budgets_and_timeout_configuration(self):
+        provider = ApiProvider("https://example.test", "model", "key",
+                               request_timeout_seconds=600,
+                               token_budgets={"proposal": 65536, "reflection": 20000})
+        self.assertEqual(provider.token_budget("proposal", 10000), 65536)
+        self.assertEqual(provider.token_budget("analysis", 10000), 10000)
+        with patch("urllib.request.urlopen", return_value=FakeResponse()) as call:
+            request_json(provider, "high", [], max_tokens=100)
+            self.assertEqual(call.call_args.kwargs["timeout"], 600)
+            request_json(provider, "high", [], max_tokens=100, timeout=7.5)
+            self.assertEqual(call.call_args.kwargs["timeout"], 7.5)
+
+    def test_unconfigured_timeout_uses_legacy_default(self):
+        provider = ApiProvider("https://example.test", "model", "key")
+        self.assertIsNone(provider.request_timeout_seconds)
+        with patch("urllib.request.urlopen", return_value=FakeResponse()) as call:
+            request_json(provider, "high", [], max_tokens=100)
+        self.assertEqual(call.call_args.kwargs["timeout"], 180)
+
+    def test_invalid_timeout_and_stage_budgets_are_rejected(self):
+        for value in (0, -1, True, "600", float("nan"), float("inf")):
+            with self.subTest(timeout=value), self.assertRaisesRegex(ValueError, "request_timeout_seconds"):
+                ApiProvider("https://example.test", "model", "key", request_timeout_seconds=value)
+        for value in (None, [], {"unknown": 100}, {"analysis": 0}, {"review": -1},
+                      {"reflection": True}, {"proposal": 3.5}, {"diagnosis": "100"}):
+            with self.subTest(budgets=value), self.assertRaisesRegex(ValueError, "token_budgets"):
+                ApiProvider("https://example.test", "model", "key", token_budgets=value)
+
+    def test_invalid_final_json_preserves_content_without_exposing_it_in_error(self):
+        content = '{"private_marker":'
+
+        class InvalidResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": content, "reasoning_content": "private reasoning"}}]}).encode()
+
+        with patch("urllib.request.urlopen", return_value=InvalidResponse()):
+            with self.assertRaises(ValueError) as caught:
+                request_json(ApiProvider("https://example.test", "model", "key"), "high", [], max_tokens=100)
+        self.assertEqual(type(caught.exception).__name__, "InvalidJSONResponseError")
+        self.assertEqual(caught.exception.content, content)
+        self.assertIsInstance(caught.exception.parse_error, json.JSONDecodeError)
+        self.assertNotIn("private_marker", str(caught.exception))
+        self.assertNotIn("private_marker", repr(caught.exception))
+        self.assertNotIn("private reasoning", repr(caught.exception))
+
     def test_base_url_and_key_drive_high_request_with_thinking_enabled(self):
         provider = ApiProvider("https://api.deepseek.com", "deepseek-flash", "test-key",
                                thinking="enabled")
@@ -74,6 +120,8 @@ class ProviderTests(unittest.TestCase):
                 request_json(provider, "high", [{"role": "user", "content": "test"}], max_tokens=100)
         self.assertEqual(type(captured.exception).__name__, "IncompleteResponseError")
         self.assertEqual(getattr(captured.exception, "reason", None), "length")
+        self.assertEqual(captured.exception.content, '{"partial":')
+        self.assertNotIn("partial", str(captured.exception))
 
     def test_keepalive_chunks_cannot_extend_total_deadline_and_reader_closes(self):
         class KeepaliveResponse(FakeResponse):

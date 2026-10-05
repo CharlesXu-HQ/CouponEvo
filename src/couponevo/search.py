@@ -17,7 +17,7 @@ from .evaluate import Budget
 from .experience import load_experience
 from .research_evidence import observed_change_audit, search_evidence
 from .harness import (build_harness_context, harness_identity, refresh_model_evo,
-                      research_history, validate_model_evo_data_request,
+                      model_design_identity, research_history, validate_model_evo_data_request,
                       validate_model_evo_audit_recommendations,
                       validate_model_evo_reflection, validate_research,
                       validation_business_observations)
@@ -111,7 +111,8 @@ def _context(journal: dict, root: Path, *, budget_exhausted: bool = False) -> di
         if (not design or entry["status"] != "evaluated" or
                 str(entry.get("eligibility", "")).startswith("blocked")):
             continue
-        pair = (design["estimator"], design["backbone"])
+        identity = model_design_identity(design)
+        pair = (identity["estimator_id"], identity["backbone_id"])
         if pair not in represented:
             represented.add(pair)
             if entry["id"] in selected_ids:
@@ -130,6 +131,9 @@ def _context(journal: dict, root: Path, *, budget_exhausted: bool = False) -> di
                                    "eligibility": entry.get("eligibility"),
                                    "research": entry.get("research"),
                                    "approach": entry.get("approach")}
+        design = (entry.get("research") or {}).get("model_design")
+        if design:
+            available[entry["id"]]["model_identity"] = model_design_identity(design)
     context = {"dataset_sha256": journal["task"]["dataset"],
             "manifest_sha256": journal["task"]["manifest"],
             "objective": journal["task"]["objective"], "budget": journal["task"]["budget"],
@@ -146,8 +150,13 @@ def _context(journal: dict, root: Path, *, budget_exhausted: bool = False) -> di
                        if error["after_step"] == len(journal["steps"]) and
                        error.get("budget_exhausted", False) == budget_exhausted][-2:]
     if proposal_errors:
-        context.update(proposal_errors=proposal_errors,
+        context.update(proposal_errors=[{key: value for key, value in error.items() if key != "proposal"}
+                                        for error in proposal_errors],
                        proposal_error=proposal_errors[-1]["error"])
+        rejected = next((error["proposal"] for error in reversed(proposal_errors)
+                         if isinstance(error.get("proposal"), dict)), None)
+        if rejected is not None:
+            context["rejected_proposal"] = rejected
     return context
 
 
@@ -418,6 +427,7 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                 context["experiment_budget_exhausted"] = True
             proposal: dict | None = None
             for attempt in range(2):
+                raw = None
                 try:
                     raw = proposer(context)
                     proposal = _validate_proposal(raw, context["available"],
@@ -434,12 +444,18 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                             diagnoser is None or not context["diagnostic_available"]):
                         raise ValueError("diagnosis is unavailable until the next experiment")
                     break
-                except (ValueError, SyntaxError) as error:
-                    journal.setdefault("proposal_errors", []).append({
+                except Exception as error:
+                    recovery_exhausted = getattr(error, "agent_response_recovery_exhausted", False)
+                    if not isinstance(error, (ValueError, SyntaxError)) and not recovery_exhausted:
+                        raise
+                    failure = {
                         "after_step": len(journal["steps"]), "attempt": attempt + 1,
-                        "budget_exhausted": exhausted, "error": str(error)[-2000:]})
+                        "budget_exhausted": exhausted, "error": str(error)[-2000:]}
+                    if isinstance(raw, dict):
+                        failure["proposal"] = raw
+                    journal.setdefault("proposal_errors", []).append(failure)
                     _save(journal_path, journal)
-                    if attempt:
+                    if attempt or recovery_exhausted:
                         if not exhausted:
                             raise
                         journal["budget_exhausted_decision"] = {
@@ -568,6 +584,8 @@ def run_search(manifest_path: Path, budget: Budget, *, seed: int, output: Path,
                     break
                 except Exception as error:
                     pending["analysis_error"] = str(error)[-2000:]
+                    if getattr(error, "agent_response_recovery_exhausted", False):
+                        break
         if pending["status"] == "evaluated":
             review = pending.get("analysis") or {}
             review = review.get("max") or review.get("high") or {}

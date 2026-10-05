@@ -523,6 +523,7 @@ class RunTests(unittest.TestCase):
             "provider_url": "https://proxy.example/v1", "model": "flash-proxy",
             "api_key_env": "TEST_AGENT_KEY", "thinking": "enabled",
             "iteration_effort": "high", "review_effort": "max",
+            "request_timeout_seconds": 600, "token_budgets": {"proposal": 65536, "analysis": 20000},
         }))
 
         def fake_revision(path, *_args, **_kwargs):
@@ -546,10 +547,51 @@ class RunTests(unittest.TestCase):
         self.assertEqual(revision_provider.api_key, "test-key")
         self.assertEqual(revision_provider.iteration_effort, "high")
         self.assertEqual(revision_provider.review_effort, "max")
+        self.assertEqual(revision_provider.request_timeout_seconds, 600)
+        self.assertEqual(revision_provider.token_budget("proposal", 10000), 65536)
         revised = analyze.call_args.args[1]
         artifact = self.root / "runs" / revised["run_id"]
         self.assertEqual(revised["agent"]["provider"], "api")
+        self.assertEqual(revised["agent"]["request_timeout_seconds"], 600)
+        self.assertEqual(revised["agent"]["token_budgets"], {"proposal": 65536, "analysis": 20000})
         self.assertNotIn("test-key", (artifact / "report.json").read_text())
+
+    def test_search_default_provider_identity_preserves_legacy_fields(self):
+        args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                "--objective", "active", "--search-id", "default-provider",
+                "--agent-provider", "deepseek", "--unsafe-local-execution"]
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"}), \
+                patch("couponevo.cli.run_search", return_value={}) as search:
+            main()
+        self.assertEqual(search.call_args.kwargs["agent_info"], {
+            "provider_url": "https://api.deepseek.com", "model": "deepseek-flash",
+            "thinking": "enabled", "iteration_effort": "high", "review_effort": "max"})
+
+    def test_search_budget_configuration_is_recorded_and_changes_reject_resume(self):
+        config_path = self.root / "agent.json"
+        config = {"provider_url": "https://api.deepseek.com", "model": "deepseek-flash",
+                  "request_timeout_seconds": 600, "token_budgets": {"reflection": 20000}}
+        config_path.write_text(json.dumps(config))
+        args = ["couponevo", "search", str(self.path), "--budget-kind", "count", "--budget", "0.2",
+                "--objective", "active", "--search-id", "budget-provider", "--output", str(self.root / "runs"),
+                "--agent-config", str(config_path), "--unsafe-local-execution"]
+        report = {"policies": {"active": {"effects": {"active": {"mean": 0.0}}}}}
+        with patch.object(sys, "argv", args), patch.dict(os.environ, {"AGENT_API_KEY": "test-key"}), \
+                patch("couponevo.search._evaluate", return_value=report), \
+                patch("couponevo.cli.propose_search_candidate", return_value={
+                    "action": "stop", "reason": "No experiment justified"}):
+            main()
+        journal_text = (self.root / "runs/budget-provider/journal.json").read_text()
+        identity = json.loads(journal_text)["agent"]
+        self.assertEqual(identity["request_timeout_seconds"], 600)
+        self.assertEqual(identity["token_budgets"], {"reflection": 20000})
+        self.assertNotIn("test-key", journal_text)
+        for change in ({"request_timeout_seconds": 180}, {"token_budgets": {"reflection": 30000}}):
+            config_path.write_text(json.dumps({**config, **change}))
+            with self.subTest(change=change), patch.object(sys, "argv", [*args, "--resume"]), \
+                    patch.dict(os.environ, {"AGENT_API_KEY": "test-key"}), \
+                    self.assertRaisesRegex(ValueError, "Agent configuration changed"):
+                main()
 
     def test_direct_deepseek_url_enables_thinking(self):
         candidate = self.root / "candidate.py"

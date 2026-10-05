@@ -470,7 +470,7 @@ class ModelEvoIntegrationTests(unittest.TestCase):
                 current["components"].append({"id": name, "mechanism": name,
                     "code_sections": [name], "input_fields": ["x"], "required_capabilities": []})
             if count == 3:
-                current.update(backbone="GatedExperts", change_scope="switch")
+                current.update(backbone="GatedExperts", backbone_id="gated-experts", change_scope="switch")
                 current["components"] = current["components"][:2]
                 current["components"][1]["mechanism"] = "Shared expert BCE with arm masking"
             source = "import torch\n"

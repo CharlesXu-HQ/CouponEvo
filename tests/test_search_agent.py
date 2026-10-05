@@ -1,5 +1,6 @@
 import json
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from couponevo.agent import (diagnose_search_state, propose_search_candidate,
@@ -46,9 +47,93 @@ class SearchAgentTests(unittest.TestCase):
         self.assertIn("experiment_budget_exhausted", body["messages"][0]["content"])
         self.assertIn("Unverified feature timing", body["messages"][0]["content"])
 
+    def test_host_validation_retry_keeps_rejected_proposal_for_targeted_repair(self):
+        self.context["rejected_proposal"] = self.answer
+        self.context["proposal_error"] = "local lineage mismatch"
+        with patch("urllib.request.urlopen", return_value=FakeResponse(self.answer)) as call:
+            propose_search_candidate(self.provider, self.context)
+        messages = json.loads(call.call_args.args[0].data)["messages"]
+        self.assertIn("rejected_proposal", messages[0]["content"])
+        self.assertIn("proposal_error", messages[0]["content"])
+        self.assertIn("do not replan", messages[0]["content"].lower())
+        self.assertEqual(json.loads(messages[1]["content"])["rejected_proposal"], self.answer)
+
+    def test_proposal_repairs_original_final_json_without_replanning(self):
+        raw = json.dumps(self.answer)[:-1]  # GPU call-002/007/010 omitted the outer brace.
+
+        class MalformedResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "stop", "message": {
+                    "content": raw, "reasoning_content": "private reasoning"}}]}).encode()
+
+        with patch("urllib.request.urlopen", side_effect=[MalformedResponse({}),
+                                                          FakeResponse(self.answer)]) as call:
+            self.assertEqual(propose_search_candidate(self.provider, self.context), self.answer)
+        repaired = json.loads(call.call_args.args[0].data)
+        self.assertEqual(repaired["messages"][-2], {"role": "assistant", "content": raw})
+        self.assertIn("preserve", repaired["messages"][-1]["content"].lower())
+        self.assertIn("Do not choose a new experiment", repaired["messages"][-1]["content"])
+        self.assertNotIn("private reasoning", json.dumps(repaired))
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [32768, 32768])
+
+    def test_length_repair_retains_partial_final_source_but_never_accepts_it(self):
+        partial = json.dumps(self.answer)[:-1]
+
+        class TruncatedResponse(FakeResponse):
+            def read(self):
+                return json.dumps({"choices": [{"finish_reason": "length", "message": {
+                    "content": partial, "reasoning_content": "private reasoning"}}]}).encode()
+
+        with patch("urllib.request.urlopen", side_effect=[TruncatedResponse({}),
+                                                          FakeResponse(self.answer)]) as call:
+            self.assertEqual(propose_search_candidate(self.provider, self.context), self.answer)
+        self.assertEqual(call.call_count, 2)
+        payload = json.loads(call.call_args.args[0].data)
+        self.assertEqual(payload["messages"][-2], {"role": "assistant", "content": partial})
+        self.assertIn("truncated", payload["messages"][-1]["content"])
+        self.assertIn("not accepted", payload["messages"][-1]["content"])
+        self.assertIn("complete JSON object", payload["messages"][-1]["content"])
+        self.assertNotIn("private reasoning", json.dumps(payload))
+
+    def test_proposal_budget_combines_length_timeout_and_json_failures(self):
+        with patch("urllib.request.urlopen", side_effect=[FakeResponse({}, "length"),
+                TimeoutError("transient"), FakeResponse({})]) as call:
+            with self.assertRaisesRegex(ValueError, "experiment needs"):
+                propose_search_candidate(self.provider, self.context)
+        self.assertEqual(call.call_count, 3)
+
+    def test_proposal_timeout_recovery_and_configured_budget(self):
+        provider = ApiProvider("https://api.deepseek.com", "deepseek-flash", "test-key",
+                               request_timeout_seconds=180, token_budgets={"proposal": 65536})
+        with patch("urllib.request.urlopen", side_effect=[TimeoutError("transient"),
+                FakeResponse({}, "length"), FakeResponse(self.answer)]) as call:
+            self.assertEqual(propose_search_candidate(provider, self.context), self.answer)
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [65536, 65536, 131072])
+        self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [180] * 3)
+
+    def test_proposal_http_authorization_failure_is_not_retried(self):
+        error = urllib.error.HTTPError("https://example.test", 401, "Unauthorized", {}, None)
+        with patch("urllib.request.urlopen", side_effect=error) as call:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 401") as caught:
+                propose_search_candidate(self.provider, self.context)
+        self.assertTrue(caught.exception.agent_response_recovery_exhausted)
+        self.assertEqual(call.call_count, 1)
+
+    def test_diagnosis_timeout_retry_and_configured_budget(self):
+        provider = ApiProvider("https://api.deepseek.com", "deepseek-flash", "test-key",
+                               token_budgets={"diagnosis": 12000})
+        answer = {"finding": "uncertain", "evidence": "paired CI", "next_direction": "ablate"}
+        with patch("urllib.request.urlopen", side_effect=[TimeoutError("transient"),
+                                                          FakeResponse(answer)]) as call:
+            self.assertEqual(diagnose_search_state(provider, self.context, "Why?"), answer)
+        self.assertEqual([json.loads(item.args[0].data)["max_tokens"]
+                          for item in call.call_args_list], [12000, 12000])
+
     def test_model_evo_reads_real_source_before_writing_candidate(self):
-        from importlib import import_module
-        package = import_module("model_evo_harness")
+        from couponevo.harness import _model_evo_package
+        package = _model_evo_package()
         self.context["harness"] = {"source": "ModelEvoHarness",
                                    "catalog": package.load_catalog(),
                                    "task_snapshot": {"framework": "pytorch", "fields": ["x"]}}
@@ -65,8 +150,8 @@ class SearchAgentTests(unittest.TestCase):
         self.assertIn("models/pytorch/architectures.py", result["reference_reads"])
 
     def test_model_evo_contract_retry_preserves_source_reads(self):
-        from importlib import import_module
-        package = import_module("model_evo_harness")
+        from couponevo.harness import _model_evo_package
+        package = _model_evo_package()
         self.context["harness"] = {"source": "ModelEvoHarness",
                                    "catalog": package.load_catalog(),
                                    "task_snapshot": {"framework": "pytorch", "fields": ["x"]}}
@@ -77,6 +162,21 @@ class SearchAgentTests(unittest.TestCase):
             result = propose_search_candidate(self.provider, self.context)
         self.assertEqual(call.call_count, 3)
         self.assertIn("models/pytorch/interactions.py", result["reference_reads"])
+        self.assertIn("class AFM", json.loads(call.call_args.args[0].data)["messages"][1]["content"])
+
+    def test_reference_reads_do_not_reset_the_shared_recovery_budget(self):
+        from couponevo.harness import _model_evo_package
+        package = _model_evo_package()
+        self.context["harness"] = {"source": "ModelEvoHarness", "catalog": package.load_catalog(),
+                                   "task_snapshot": {"framework": "pytorch", "fields": ["x"]}}
+        reads = [{"action": "read_reference", "framework": "pytorch", "method_ids": [name]}
+                 for name in ("fm", "afm")]
+        with patch("couponevo.harness._model_evo_package", return_value=package), \
+             patch("urllib.request.urlopen", side_effect=[*[FakeResponse(read) for read in reads],
+                    FakeResponse({}, "length"), FakeResponse({}), FakeResponse(self.answer)]) as call:
+            result = propose_search_candidate(self.provider, self.context)
+        self.assertEqual(call.call_count, 5)  # Two reads plus at most three final attempts.
+        self.assertEqual(len(result["reference_reads"]), 2)
         self.assertIn("class AFM", json.loads(call.call_args.args[0].data)["messages"][1]["content"])
 
     def test_harness_reaches_provider_with_open_research_contract(self):
@@ -205,6 +305,7 @@ class SearchAgentTests(unittest.TestCase):
             self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [180, 300, 300])
             self.assertEqual([item["reasoning_effort"] for item in payloads], ["high"] * 3)
             self.assertIn("Invalid reflection:", payloads[-1]["messages"][-1]["content"])
+            self.assertEqual(payloads[-1]["messages"][-2]["role"], "assistant")
 
     def test_reflection_consecutive_length_stops_after_three_attempts(self):
         with patch("urllib.request.urlopen", side_effect=[FakeResponse({}, "length") for _ in range(3)]) as call:
@@ -221,11 +322,12 @@ class SearchAgentTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "content_filter")
         self.assertEqual(call.call_count, 1)
 
-    def test_reflection_timeout_does_not_retry(self):
+    def test_reflection_timeout_retries_only_once(self):
         with patch("urllib.request.urlopen", side_effect=TimeoutError("provider timed out")) as call:
-            with self.assertRaisesRegex(TimeoutError, "provider timed out"):
+            with self.assertRaisesRegex(TimeoutError, "provider timed out") as caught:
                 reflect_search_step(self.provider, {"status": "evaluated"})
-        self.assertEqual(call.call_count, 1)
+        self.assertTrue(caught.exception.agent_response_recovery_exhausted)
+        self.assertEqual(call.call_count, 2)
 
     def test_diagnosis_uses_only_search_context_and_question(self):
         answer = {"finding": "Cost rose", "evidence": "net delta below zero",
