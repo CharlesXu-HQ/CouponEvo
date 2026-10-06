@@ -2,6 +2,14 @@
 
 ModelEvoHarness 是独立的跨场景模型迭代项目。CouponEvo 通过 `--harness model-evo` 读取其研究 catalog、判断方向与当前任务的适用性，并校验 Agent 的实验设计。训练、候选代码隔离执行、固定目标、预算、验证集和最终留出集仍由 CouponEvo 控制。仓库内的 [JSON 研究插件](harness.md) 是另一种可选入口。
 
+## 2026-10-06 依赖更新
+
+默认 submodule 从 `23c947d` 更新到上游 `63c6eb7`。该提交增加独立 Harness 搜索引擎的可选实现验证晋升门槛、晋升原因记录，以及由引擎收集的参考源码 `read` / `delivered` 事件。共享接口签名兼容；源码传递会复制 callback 上下文，反思校验也兼容空的 implementation/change-audit 对象。
+
+CouponEvo 调用研究校验与 `propose_with_references`，运行自己的 `search.run_search`。因此这次依赖更新继续提供兼容的 `reference_reads`；上游引擎的严格晋升开关和 `reference_events` 日志不会自动在 CouponEvo 中启用。CouponEvo 的候选资格仍由自身的实现检查、泄漏检查和反思决定，不能把此次版本更新描述为已接入这两项引擎功能。
+
+兼容性验证：Harness 引擎、provider、来源读取、横向组合等相关回归 **125 项通过**；CouponEvo 使用实际 submodule 运行完整回归，**235 项执行、234 通过、1 项本机 CUDA 跳过**。本次未修改模型实现，验证范围为依赖与宿主接入。
+
 ## 安装与任务边界
 
 CouponEvo 用 `third_party/model-evo-harness` Git submodule 引入独立仓库。克隆后先初始化 submodule，并从本地检出目录安装到运行搜索的主机 Python 环境；仅克隆 CouponEvo 不会安装这个包。每次新建 `search --harness model-evo` 会在导入包前自动执行 `git submodule update --init --remote`，获取配置的最新 `main`。候选代码的 Docker 镜像不需要安装它。当前 `uv.lock` 不含这项可选依赖，因此先同步 CouponEvo 环境，再安装 submodule，并用 `.venv/bin/python` 运行；若以后重新同步环境，应从**同一检出目录**重新安装。
